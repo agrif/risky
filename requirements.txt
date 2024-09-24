@@ -1,0 +1,22 @@
+amaranth==0.5.2
+amaranth-boards @ git+https://github.com/amaranth-lang/amaranth-boards.git@19b97324ecf9111c5d16377af79f82aad761c476
+amaranth-yosys==0.40.0.0.post99
+bcrypt==4.2.0
+bitarray==2.9.2
+bitstring==4.2.3
+cffi==1.17.1
+click==8.1.7
+cryptography==43.0.1
+importlib_resources==6.4.5
+Jinja2==3.1.4
+jschon==0.11.1
+MarkupSafe==2.1.5
+paramiko==3.5.0
+pycparser==2.22
+pyelftools==0.31
+PyNaCl==1.5.0
+pyvcd==0.4.0
+rfc3986==2.0.0
+riscv-assembler==1.2.1
+wasmtime==24.0.0
+zipp==3.20.2
