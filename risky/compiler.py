@@ -152,14 +152,3 @@ class ElfData:
     @property
     def flat_words(self):
         return list(x[0] for x in struct.iter_unpack('<I', self.flat))
-
-def compile(files, **kwargs):
-    with Compiler(**kwargs) as c:
-        for fname in files:
-            c.add(fname)
-
-        elf = c.link()
-        elf.dump('debug.elf')
-        elf.dump_flat('debug.bin')
-        elf.dump_disassemble('debug.dump')
-        return elf.flat_words
