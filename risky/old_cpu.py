@@ -140,7 +140,7 @@ class Cpu(am.lib.wiring.Component):
 
         # alu shared logic
         alu_minus = am.Signal(33)
-        m.d.comb += alu_minus.eq(alu_in1.as_unsigned() - alu_in2.as_unsigned())
+        m.d.comb += alu_minus.eq(alu_in1[:32].as_unsigned() - alu_in2[:32].as_unsigned())
         alu_plus = alu_in1 + alu_in2
         eq = (alu_minus[:32] == 0)
         ltu = alu_minus[32]
@@ -210,7 +210,7 @@ class Cpu(am.lib.wiring.Component):
             with m.Case(Op.JAL):
                 m.d.comb += next_pc.eq(pc_plus_imm)
             with m.Case(Op.JALR):
-                m.d.comb += next_pc.eq(alu_plus)
+                m.d.comb += next_pc.eq(am.Cat(0, alu_plus[1:]))
             with m.Case(Op.BRANCH):
                 with m.If(take_branch):
                     m.d.comb += next_pc.eq(pc_plus_imm)
