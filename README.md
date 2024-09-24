@@ -7,7 +7,7 @@ learn RISC-V and Amaranth. It's probably not very good.
 Get Started
 -----------
 
- 1. Get a RISC-V toolchain, with `riscv-none-elf-gcc', and put it in
+ 1. Get a RISC-V toolchain, with `riscv-none-elf-gcc`, and put it in
     your PATH.
      * Good candidates are [from platformio][platformio] and [from
     sifive][sifive].
