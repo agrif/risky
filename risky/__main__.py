@@ -43,7 +43,8 @@ def cli():
     pass
 
 @cli.command()
-def test():
+@click.option('-c', '--cpu-name')
+def test(cpu_name):
     def iter_configs():
         yield ('old', risky.old_cpu.Cpu())
 
@@ -60,6 +61,9 @@ def test():
     fails = []
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
     for name, cpu in iter_configs():
+        if cpu_name and name != cpu_name:
+            continue
+
         print()
         print(name)
         tests = list(risky.test.ProgramTest.iter_tests(cpu))
@@ -73,13 +77,22 @@ def test():
                     result.result()
                 except Exception as e:
                     fails.append((name, test.name))
+                    print()
+                    print()
+                    print('!!! ', name, test.name)
                     traceback.print_exc()
+                    print()
 
                 total += 1
                 pbar.update(1)
 
             pbar.desc = ''
             pbar.update(0)
+
+        if cpu_name and name == cpu_name:
+            # don't try to construct the rest or amaranth will complain
+            # that we never elaborate them.
+            break
 
     print()
     print('{} tests, {} failures.'.format(total, len(fails)))
