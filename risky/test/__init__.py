@@ -10,13 +10,12 @@ import risky.soc
 class Simulated:
     clk_freq = 1_000_000
 
-    def __init__(self):
+    def run(self, output=None):
         self.dut = self.construct()
         self.sim = am.sim.Simulator(self.dut)
         self.sim.add_clock(1 / self.clk_freq)
         self.sim.add_testbench(self.testbench)
 
-    def run(self, output=None):
         if output:
             with self.sim.write_vcd(output):
                 self.sim.run()
@@ -29,7 +28,7 @@ class Simulated:
     async def testbench(self, ctx):
         pass
 
-class UnitTest(Simulated):
+class ProgramTest(Simulated):
     HEADER = """
     .globl _reset_vector
     _reset_vector:
@@ -41,18 +40,22 @@ class UnitTest(Simulated):
 
     CHECKPOINTS = []
 
+    def __init__(self, cpu):
+        super().__init__()
+        self.cpu = cpu
+
     @property
     def name(self):
         return self.__class__.__name__
 
     @classmethod
-    def iter_tests(cls):
+    def iter_tests(cls, cpu):
         for subclass in cls.__subclasses__():
             if subclass.PROGRAM:
-                yield subclass()
+                yield subclass(cpu)
 
     def construct(self):
-        dut = risky.soc.Soc(self.clk_freq)
+        dut = risky.soc.Soc(self.clk_freq, cpu=self.cpu)
         dut.cpu.assert_unknown_instructions = True
 
         with dut.compiler(runtime=False, optimize=False) as c:

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 
+import concurrent.futures
 import functools
 import json
+import os
 import os.path
 import subprocess
+import sys
 import tempfile
+import traceback
 
 import risky.cpu
 import risky.demo
+import risky.old_cpu
 import risky.soc
 import risky.test
 import risky.test.rv32i
@@ -22,6 +27,7 @@ import amaranth_boards.icestick
 import amaranth_boards.tang_nano_9k
 
 import click
+import tqdm
 
 # a dirty trick to unbuffer stdout
 # https://stackoverflow.com/a/181654
@@ -38,9 +44,50 @@ def cli():
 
 @cli.command()
 def test():
-    for t in risky.test.UnitTest.iter_tests():
-        print(t.name)
-        t.run()
+    def iter_configs():
+        yield ('old', risky.old_cpu.Cpu())
+
+        configs = [
+            [],
+            [risky.cpu.Zicsr, risky.cpu.Zicntr],
+        ]
+
+        for config in configs:
+            cpu = risky.cpu.Cpu(extensions=[e() for e in config])
+            yield (cpu.march, cpu)
+
+    total = 0
+    fails = []
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
+    for name, cpu in iter_configs():
+        print()
+        print(name)
+        tests = list(risky.test.ProgramTest.iter_tests(cpu))
+        with tqdm.tqdm(total=len(tests), unit='t') as pbar:
+            results = [executor.submit(lambda t: t.run(), test) for test in tests]
+            for test, result in zip(tests, results):
+                pbar.desc = test.name
+                pbar.update(0)
+
+                try:
+                    result.result()
+                except Exception as e:
+                    fails.append((name, test.name))
+                    traceback.print_exc()
+
+                total += 1
+                pbar.update(1)
+
+            pbar.desc = ''
+            pbar.update(0)
+
+    print()
+    print('{} tests, {} failures.'.format(total, len(fails)))
+    for cpu_name, test_name in fails:
+        print(' - {} {} failed'.format(cpu_name, test_name))
+
+    if fails:
+        sys.exit(1)
 
 @cli.command()
 @click.option('-o', '--output', type=click.File('w'))

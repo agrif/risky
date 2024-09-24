@@ -1,6 +1,6 @@
 import risky.test
 
-class LUI(risky.test.UnitTest):
+class LUI(risky.test.ProgramTest):
     PROGRAM = """
     lui a0, 1
     one:
@@ -18,7 +18,7 @@ class LUI(risky.test.UnitTest):
         ('letters', {'a2': 0xabcde << 12}),
     ]
 
-class AUIPC(risky.test.UnitTest):
+class AUIPC(risky.test.ProgramTest):
     PROGRAM = """
     one_pc:
     auipc a0, 1
@@ -43,7 +43,7 @@ class AUIPC(risky.test.UnitTest):
         await self.advance_until(ctx, 'letters')
         self.assert_eq(ctx, 'a2', 0xffff_ffff & (self.symbols['letters_pc'] + (0xabcde << 12)))
 
-class JAL(risky.test.UnitTest):
+class JAL(risky.test.ProgramTest):
     PROGRAM = """
     first:
     jal a0, second
@@ -61,7 +61,7 @@ class JAL(risky.test.UnitTest):
         await self.advance_until(ctx, 'first')
         self.assert_eq(ctx, 'a1', self.symbols['second'] + 4)
 
-class JALR(risky.test.UnitTest):
+class JALR(risky.test.ProgramTest):
     PROGRAM = """
     j first
 
@@ -85,7 +85,7 @@ class JALR(risky.test.UnitTest):
         await self.advance_until(ctx, 'first')
         self.assert_eq(ctx, 'a1', self.symbols['second_pc'] + 4)
 
-class BEQ(risky.test.UnitTest):
+class BEQ(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 3
     li a1, -2
@@ -120,7 +120,7 @@ class BEQ(risky.test.UnitTest):
         ('end_b', {'a0': 3, 'a1': 3}),
     ]
 
-class BNE(risky.test.UnitTest):
+class BNE(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 3
     li a1, -2
@@ -153,7 +153,7 @@ class BNE(risky.test.UnitTest):
         ('end_b', {'a0': 3, 'a1': 3}),
     ]
 
-class BLT(risky.test.UnitTest):
+class BLT(risky.test.ProgramTest):
     PROGRAM = """
     li a0, -5
     li a1, -2
@@ -194,7 +194,7 @@ class BLT(risky.test.UnitTest):
         ('end_c', {'a0': 1, 'a1': (1 << 32) - 3}),
     ]
 
-class BGE(risky.test.UnitTest):
+class BGE(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 5
     li a1, 2
@@ -237,7 +237,7 @@ class BGE(risky.test.UnitTest):
         ('end_c', {'a0': (1 << 32) - 2, 'a1': 2}),
     ]
 
-class BLTU(risky.test.UnitTest):
+class BLTU(risky.test.ProgramTest):
     PROGRAM = """
     li a0, -5
     li a1, -2
@@ -276,7 +276,7 @@ class BLTU(risky.test.UnitTest):
         ('end_c', {'a0': (1 << 32) - 1, 'a1': (1 << 32) - 3}),
     ]
 
-class BGEU(risky.test.UnitTest):
+class BGEU(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 5
     li a1, 2
@@ -316,7 +316,7 @@ class BGEU(risky.test.UnitTest):
         ('end_c', {'a0': 0, 'a1': 2}),
     ]
 
-class LB(risky.test.UnitTest):
+class LB(risky.test.ProgramTest):
     PROGRAM = """
     la t0, ptr
 
@@ -352,7 +352,7 @@ class LB(risky.test.UnitTest):
         }),
     ]
 
-class LH(risky.test.UnitTest):
+class LH(risky.test.ProgramTest):
     PROGRAM = """
     la t0, ptr
 
@@ -380,7 +380,7 @@ class LH(risky.test.UnitTest):
         }),
     ]
 
-class LW(risky.test.UnitTest):
+class LW(risky.test.ProgramTest):
     PROGRAM = """
     la t0, ptr
 
@@ -404,7 +404,7 @@ class LW(risky.test.UnitTest):
         }),
     ]
 
-class LBU(risky.test.UnitTest):
+class LBU(risky.test.ProgramTest):
     PROGRAM = """
     la t0, ptr
 
@@ -440,7 +440,7 @@ class LBU(risky.test.UnitTest):
         }),
     ]
 
-class LHU(risky.test.UnitTest):
+class LHU(risky.test.ProgramTest):
     PROGRAM = """
     la t0, ptr
 
@@ -468,7 +468,7 @@ class LHU(risky.test.UnitTest):
         }),
     ]
 
-class SB(risky.test.UnitTest):
+class SB(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x12345678
     li a1, 0x9abcdef0
@@ -515,7 +515,7 @@ class SB(risky.test.UnitTest):
         }),
     ]
 
-class SH(risky.test.UnitTest):
+class SH(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x12345678
     li a1, 0x9abcdef0
@@ -562,7 +562,7 @@ class SH(risky.test.UnitTest):
         }),
     ]
 
-class SW(risky.test.UnitTest):
+class SW(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x12345678
     li a1, 0x9abcdef0
@@ -597,7 +597,7 @@ class SW(risky.test.UnitTest):
         }),
     ]
 
-class ADDI(risky.test.UnitTest):
+class ADDI(risky.test.ProgramTest):
     PROGRAM = """
     addi a0, zero, 22
     addi a1, zero, 5
@@ -617,7 +617,7 @@ class ADDI(risky.test.UnitTest):
         ('b', {'a4': 27, 'a5': 3, 'a6': 2, 'a7': (1 << 32) - 15}),
     ]
 
-class SLTI(risky.test.UnitTest):
+class SLTI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, -5
     a:
@@ -634,7 +634,7 @@ class SLTI(risky.test.UnitTest):
         ('b', {'a1': 1, 'a2': 1, 'a3': 0}),
     ]
 
-class SLTIU(risky.test.UnitTest):
+class SLTIU(risky.test.ProgramTest):
     PROGRAM = """
     li a0, -5
     a:
@@ -651,7 +651,7 @@ class SLTIU(risky.test.UnitTest):
         ('b', {'a1': 0, 'a2': 1, 'a3': 0}),
     ]
 
-class XORI(risky.test.UnitTest):
+class XORI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x7ff
     a:
@@ -668,7 +668,7 @@ class XORI(risky.test.UnitTest):
         ('b', {'a1': 0x7ff ^ 0x2aa, 'a2': 0x7ff ^ 0x555, 'a3': 0x7ff ^ 0x7ff}),
     ]
 
-class ORI(risky.test.UnitTest):
+class ORI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x0f0
     a:
@@ -685,7 +685,7 @@ class ORI(risky.test.UnitTest):
         ('b', {'a1': 0x0f0 | 0x2aa, 'a2': 0x0f0 | 0x555, 'a3': 0x0f0 | 0x7ff}),
     ]
 
-class ANDI(risky.test.UnitTest):
+class ANDI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x70f
     a:
@@ -702,7 +702,7 @@ class ANDI(risky.test.UnitTest):
         ('b', {'a1': 0x70f & 0x2aa, 'a2': 0x70f & 0x555, 'a3': 0x70f & 0x7ff}),
     ]
 
-class SLLI(risky.test.UnitTest):
+class SLLI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x7a5
     a:
@@ -719,7 +719,7 @@ class SLLI(risky.test.UnitTest):
         ('b', {'a1': 0x7a5 << 2, 'a2': 0x7a5 << 5, 'a3': (0x7a5 << 30) & 0xffff_ffff}),
     ]
 
-class SRLI(risky.test.UnitTest):
+class SRLI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x8a500000
     a:
@@ -748,7 +748,7 @@ class SRLI(risky.test.UnitTest):
         ('d', {'a1': baseb >> 2, 'a2': baseb >> 5, 'a3': baseb >> 30}),
     ]
 
-class SRAI(risky.test.UnitTest):
+class SRAI(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x8a500000
     a:
@@ -781,7 +781,7 @@ class SRAI(risky.test.UnitTest):
         ('d', {'a1': baseb >> 2, 'a2': baseb >> 5, 'a3': baseb >> 30}),
     ]
 
-class ADD(risky.test.UnitTest):
+class ADD(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 22
     li a1, 5
@@ -806,7 +806,7 @@ class ADD(risky.test.UnitTest):
         ('b', {'a4': 27, 'a5': 3, 'a6': 2, 'a7': (1 << 32) - 15}),
     ]
 
-class SUB(risky.test.UnitTest):
+class SUB(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 22
     li a1, 5
@@ -831,7 +831,7 @@ class SUB(risky.test.UnitTest):
         ('b', {'a4': 17, 'a5': 7, 'a6': (1 << 32) - 22, 'a7': (1 << 32) - 5}),
     ]
 
-class SLL(risky.test.UnitTest):
+class SLL(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x7a5
 
@@ -852,7 +852,7 @@ class SLL(risky.test.UnitTest):
         ('b', {'a1': 0x7a5 << 2, 'a2': 0x7a5 << 5, 'a3': (0x7a5 << 30) & 0xffff_ffff}),
     ]
 
-class SLT(risky.test.UnitTest):
+class SLT(risky.test.ProgramTest):
     PROGRAM = """
     li a0, -5
 
@@ -873,7 +873,7 @@ class SLT(risky.test.UnitTest):
         ('b', {'a1': 1, 'a2': 1, 'a3': 0}),
     ]
 
-class SLTU(risky.test.UnitTest):
+class SLTU(risky.test.ProgramTest):
     PROGRAM = """
     li a0, -5
 
@@ -894,7 +894,7 @@ class SLTU(risky.test.UnitTest):
         ('b', {'a1': 0, 'a2': 1, 'a3': 0}),
     ]
 
-class XOR(risky.test.UnitTest):
+class XOR(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x7ff
 
@@ -915,7 +915,7 @@ class XOR(risky.test.UnitTest):
         ('b', {'a1': 0x7ff ^ 0x2aa, 'a2': 0x7ff ^ 0x555, 'a3': 0x7ff ^ 0x7ff}),
     ]
 
-class SRL(risky.test.UnitTest):
+class SRL(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x8a500000
 
@@ -948,7 +948,7 @@ class SRL(risky.test.UnitTest):
         ('d', {'a1': baseb >> 2, 'a2': baseb >> 5, 'a3': baseb >> 30}),
     ]
 
-class SRA(risky.test.UnitTest):
+class SRA(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x8a500000
 
@@ -985,7 +985,7 @@ class SRA(risky.test.UnitTest):
         ('d', {'a1': baseb >> 2, 'a2': baseb >> 5, 'a3': baseb >> 30}),
     ]
 
-class OR(risky.test.UnitTest):
+class OR(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x0f0
 
@@ -1006,7 +1006,7 @@ class OR(risky.test.UnitTest):
         ('b', {'a1': 0x0f0 | 0x2aa, 'a2': 0x0f0 | 0x555, 'a3': 0x0f0 | 0x7ff}),
     ]
 
-class AND(risky.test.UnitTest):
+class AND(risky.test.ProgramTest):
     PROGRAM = """
     li a0, 0x70f
 
