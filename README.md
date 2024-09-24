@@ -15,7 +15,7 @@ Get Started
     [platformio]: https://registry.platformio.org/tools/platformio/toolchain-riscv
     [sifive]: https://github.com/sifive/freedom-tools/releases
 
- 2. `python -m venv my-virtual-env`
+ 2. `python3 -m venv my-virtual-env`
  3. `. my-virtual-env/bin/activate`
  4. `pip install -r requirements.txt`
  5. `python -m risky simulate hello.c`
