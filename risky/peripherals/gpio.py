@@ -11,12 +11,16 @@ class Output(risky.memory.MemoryComponent):
     def elaborate(self, platform):
         m = am.Module()
 
-        mask = risky.memory.mask_from_en(self.bus.write_en)
-        reg = self.regs[self.bus.addr]
-        with m.If(self.bus.write_en.any()):
-            m.d.sync += reg.eq((reg & ~mask) | (self.bus.write_data & mask))
-        with m.If(self.bus.read_en):
-            m.d.sync += self.bus.read_data.eq(reg)
+        do_write = self.bus.cyc & self.bus.we & self.bus.stb
+        do_read = self.bus.cyc & ~self.bus.we & self.bus.stb
+        m.d.comb += self.bus.ack.eq(do_read | do_write)
+
+        mask = risky.memory.mask_from_sel(self.bus.sel)
+        reg = self.regs[self.bus.adr]
+        with m.If(do_write):
+            m.d.sync += reg.eq((reg & ~mask) | (self.bus.dat_w & mask))
+        with m.If(do_read):
+            m.d.sync += self.bus.dat_r.eq(reg)
 
         return m
 

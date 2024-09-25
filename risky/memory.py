@@ -4,19 +4,14 @@ import amaranth as am
 import amaranth.lib.memory
 import amaranth.lib.enum
 
-def mask_from_en(write_en):
-    return am.Cat(*(am.Mux(bit, 0xff, 0) for bit in write_en))
+import amaranth_soc.wishbone
 
-class MemoryBus(am.lib.wiring.Signature):
+def mask_from_sel(sel):
+    return am.Cat(*(am.Mux(bit, 0xff, 0) for bit in sel))
+
+class MemoryBus(amaranth_soc.wishbone.Signature):
     def __init__(self):
-        super().__init__(dict(
-            addr = am.lib.wiring.Out(30),
-            wait = am.lib.wiring.In(1),
-            read_data = am.lib.wiring.In(32),
-            read_en = am.lib.wiring.Out(1),
-            write_data = am.lib.wiring.Out(32),
-            write_en = am.lib.wiring.Out(4),
-        ))
+        super().__init__(addr_width=30, data_width=32, granularity=8)
 
 class MemoryComponent(am.lib.wiring.Component):
     bus: am.lib.wiring.In(MemoryBus())
@@ -90,21 +85,22 @@ class MemoryMap(MemoryComponent):
             m.submodules[e.name] = e.component
 
             m.d.comb += [
-                e.component.bus.addr.eq(self.bus.addr & e.mask),
-                e.component.bus.write_data.eq(self.bus.write_data),
+                e.component.bus.adr.eq(self.bus.adr & e.mask),
+                e.component.bus.dat_w.eq(self.bus.dat_w),
             ]
 
         # handy start to if / elif / else chain
         with m.If(0):
             pass
-
         for e in self.entries:
-            with m.Elif(self.bus.addr & ~e.mask == e.base):
+            with m.Elif(self.bus.adr & ~e.mask == e.base):
                 m.d.comb += [
-                    self.bus.wait.eq(e.component.bus.wait),
-                    self.bus.read_data.eq(e.component.bus.read_data),
-                    e.component.bus.read_en.eq(self.bus.read_en),
-                    e.component.bus.write_en.eq(self.bus.write_en),
+                    self.bus.dat_r.eq(e.component.bus.dat_r),
+                    e.component.bus.sel.eq(self.bus.sel),
+                    e.component.bus.cyc.eq(self.bus.cyc),
+                    e.component.bus.stb.eq(self.bus.stb),
+                    e.component.bus.we.eq(self.bus.we),
+                    self.bus.ack.eq(e.component.bus.ack),
                 ]
 
         return m
@@ -142,28 +138,28 @@ class Ram(MemoryComponent):
         write = self.memory.write_port(domain='sync')
 
         state = am.Signal(self.RamState)
-        do_write = self.bus.write_en.any()
+        do_write = self.bus.cyc & self.bus.we & self.bus.stb
+        do_read = self.bus.cyc & ~self.bus.we & self.bus.stb
 
-        mask = am.Cat(*(am.Mux(bit, 0xff, 0) for bit in self.bus.write_en))
-        internal_write_data = (read.data & ~mask) | (self.bus.write_data & mask)
+        mask = am.Cat(*(am.Mux(bit, 0xff, 0) for bit in self.bus.sel))
+        internal_write_data = (read.data & ~mask) | (self.bus.dat_w & mask)
 
         m.d.comb += [
-            read.addr.eq(self.bus.addr),
-            self.bus.read_data.eq(read.data),
-            read.en.eq(self.bus.read_en | ((state == self.RamState.READ) & do_write)),
+            read.addr.eq(self.bus.adr),
+            self.bus.dat_r.eq(read.data),
+            read.en.eq(do_read | ((state == self.RamState.READ) & do_write)),
 
-            write.addr.eq(self.bus.addr),
+            write.addr.eq(self.bus.adr),
             write.data.eq(internal_write_data),
             write.en.eq((state == self.RamState.WRITE) & do_write),
 
-            self.bus.wait.eq((state == self.RamState.READ) & do_write),
+            self.bus.ack.eq(do_read | ((state == self.RamState.WRITE) & do_write)),
         ]
 
         with m.Switch(state):
             with m.Case(self.RamState.READ):
                 with m.If(do_write):
                     m.d.sync += state.eq(self.RamState.WRITE)
-                pass
             with m.Case(self.RamState.WRITE):
                 m.d.sync += state.eq(self.RamState.READ)
 
@@ -189,11 +185,14 @@ class Rom(MemoryComponent):
 
         read = self.memory.read_port(domain='sync')
 
+        do_write = self.bus.cyc & self.bus.we & self.bus.stb
+        do_read = self.bus.cyc & ~self.bus.we & self.bus.stb
+
         m.d.comb += [
-            read.addr.eq(self.bus.addr),
-            self.bus.wait.eq(0),
-            self.bus.read_data.eq(read.data),
-            read.en.eq(self.bus.read_en),
+            read.addr.eq(self.bus.adr),
+            self.bus.ack.eq(do_read | do_write),
+            self.bus.dat_r.eq(read.data),
+            read.en.eq(do_read),
         ]
 
         return m

@@ -63,7 +63,6 @@ class Cpu(am.lib.wiring.Component):
         self.alu = Alu(self.xlen)
 
         # state saved between the two states of load
-        self.load_mem_addr = am.Signal(self.xlen - 2)
         self.load_mem_shift = am.Signal(2) # lower bits of byte-address
         self.load_mem_mask = am.Signal(2) # [bhw]: 00 01 11
         self.load_mem_signed = am.Signal(1)
@@ -111,7 +110,9 @@ class Cpu(am.lib.wiring.Component):
         # set up reasonable combinatoric defaults to prevent
         # too much value changing
         m.d.comb += [
-            self.bus.addr.eq(self.pc[2:]),
+            self.bus.adr.eq(self.pc[2:]),
+            self.bus.sel.eq(0b1111),
+
             self.rd.eq(self.alu.out),
 
             self.alu.in1.eq(self.rs1),
@@ -130,24 +131,23 @@ class Cpu(am.lib.wiring.Component):
         with m.Switch(self.state):
             with m.Case(State.FETCH_INSTR):
                 m.d.comb += [
-                    self.bus.addr.eq(self.pc[2:]),
-                    self.bus.read_en.eq(1),
+                    self.bus.adr.eq(self.pc[2:]),
+                    self.bus.cyc.eq(1),
+                    self.bus.stb.eq(1),
+                    self.bus.sel.eq(0b1111),
                 ]
-                m.d.sync += self.state.eq(State.LOAD_INSTR)
+
+                with m.If(self.bus.ack):
+                    m.d.sync += self.state.eq(State.LOAD_INSTR)
 
             with m.Case(State.LOAD_INSTR):
-                m.d.comb += [
-                    self.bus.addr.eq(self.pc[2:]),
-                    self.bus.read_en.eq(self.bus.wait),
+                instr = Instruction(self.bus.dat_r)
+                m.d.sync += [
+                    self.instr.eq(instr),
+                    self.rs1.eq(self.regs[instr.rs1]),
+                    self.rs2.eq(self.regs[instr.rs2]),
+                    self.state.eq(State.EXECUTE),
                 ]
-                with m.If(~self.bus.wait):
-                    instr = Instruction(self.bus.read_data)
-                    m.d.sync += [
-                        self.instr.eq(instr),
-                        self.rs1.eq(self.regs[instr.rs1]),
-                        self.rs2.eq(self.regs[instr.rs2]),
-                        self.state.eq(State.EXECUTE),
-                    ]
 
             with m.Case(State.EXECUTE):
                 # default to advancing to next instruction,
@@ -171,7 +171,7 @@ class Cpu(am.lib.wiring.Component):
 
             with m.Case(State.LOAD_MEM):
                 # read shifted data
-                data = self.bus.read_data >> (self.load_mem_shift << 3);
+                data = self.bus.dat_r >> (self.load_mem_shift << 3);
 
                 # mask the data
                 mask = am.Cat(
@@ -192,14 +192,10 @@ class Cpu(am.lib.wiring.Component):
                 m.d.comb += [
                     # set rd to our computed data
                     self.rd.eq(data),
-
-                    # sustain previous output signals
-                    self.bus.addr.eq(self.load_mem_addr),
-                    self.bus.read_en.eq(self.bus.wait),
+                    self.rd_write_en.eq(1),
                 ]
-                with m.If(~self.bus.wait):
-                    m.d.comb += self.rd_write_en.eq(1)
-                    m.d.sync +=  self.state.eq(State.FETCH_INSTR)
+
+                m.d.sync +=  self.state.eq(State.FETCH_INSTR)
 
         for v in self.extensions.values():
             v.elaborate(platform, self, m)
@@ -300,17 +296,19 @@ class Cpu(am.lib.wiring.Component):
                 # all of these load from rs1 + imm_i and go to LOAD_MEM
                 dest = self.rs1 + self.instr.imm_i
                 m.d.comb += [
-                    self.bus.addr.eq(dest[2:]),
-                    self.bus.read_en.eq(1),
+                    self.bus.adr.eq(dest[2:]),
+                    self.bus.cyc.eq(1),
+                    self.bus.stb.eq(1),
                 ]
-                m.d.sync += [
-                    self.state.eq(State.LOAD_MEM),
-                    self.load_mem_addr.eq(dest[2:]),
-                ]
+
+                # advance to next state if ack'd
+                with m.If(self.bus.ack):
+                    m.d.sync += self.state.eq(State.LOAD_MEM)
 
                 with m.Switch(self.instr.funct3.mem):
                     with m.Case(Funct3Mem.BYTE):
                         self.valid_instruction(platform, m)
+                        m.d.comb += self.bus.sel.eq(1 << dest[:2])
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2]),
                             self.load_mem_mask.eq(0b00),
@@ -319,6 +317,7 @@ class Cpu(am.lib.wiring.Component):
 
                     with m.Case(Funct3Mem.HALF):
                         self.valid_instruction(platform, m)
+                        m.d.comb += self.bus.sel.eq(0b11 << (dest[:2] & 0b10))
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2] & 0b10),
                             self.load_mem_mask.eq(0b01),
@@ -327,6 +326,7 @@ class Cpu(am.lib.wiring.Component):
 
                     with m.Case(Funct3Mem.WORD):
                         self.valid_instruction(platform, m)
+                        m.d.comb += self.bus.sel.eq(0b1111)
                         m.d.sync += [
                             self.load_mem_shift.eq(0),
                             self.load_mem_mask.eq(0b11),
@@ -335,6 +335,7 @@ class Cpu(am.lib.wiring.Component):
 
                     with m.Case(Funct3Mem.BYTE_U):
                         self.valid_instruction(platform, m)
+                        m.d.comb += self.bus.sel.eq(1 << dest[:2])
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2]),
                             self.load_mem_mask.eq(0b00),
@@ -343,6 +344,7 @@ class Cpu(am.lib.wiring.Component):
 
                     with m.Case(Funct3Mem.HALF_U):
                         self.valid_instruction(platform, m)
+                        m.d.comb += self.bus.sel.eq(0b11 << (dest[:2] & 0b10))
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2] & 0b10),
                             self.load_mem_mask.eq(0b01),
@@ -354,11 +356,14 @@ class Cpu(am.lib.wiring.Component):
                 src = self.rs2
                 dest = self.rs1 + self.instr.imm_s
                 m.d.comb += [
-                    self.bus.addr.eq(dest[2:]),
+                    self.bus.adr.eq(dest[2:]),
+                    self.bus.cyc.eq(1),
+                    self.bus.stb.eq(1),
+                    self.bus.we.eq(1),
                 ]
 
-                # wait here if memory is busy
-                with m.If(self.bus.wait):
+                # wait here until ack
+                with m.If(~self.bus.ack):
                     m.d.sync += [
                         self.pc.eq(self.pc),
                         self.state.eq(State.EXECUTE),
@@ -369,23 +374,23 @@ class Cpu(am.lib.wiring.Component):
                         self.valid_instruction(platform, m)
                         byte = am.Cat(*(src[:8] for _ in range(4)))
                         m.d.comb += [
-                            self.bus.write_data.eq(byte),
-                            self.bus.write_en.eq(1 << dest[:2]),
+                            self.bus.dat_w.eq(byte),
+                            self.bus.sel.eq(1 << dest[:2]),
                         ]
 
                     with m.Case(Funct3Mem.HALF):
                         self.valid_instruction(platform, m)
                         half = am.Cat(*(src[:16] for _ in range(2)))
                         m.d.comb += [
-                            self.bus.write_data.eq(half),
-                            self.bus.write_en.eq(0b11 << (dest[:2] & 0b10)),
+                            self.bus.dat_w.eq(half),
+                            self.bus.sel.eq(0b11 << (dest[:2] & 0b10)),
                         ]
 
                     with m.Case(Funct3Mem.WORD):
                         self.valid_instruction(platform, m)
                         m.d.comb += [
-                            self.bus.write_data.eq(src),
-                            self.bus.write_en.eq(0b1111),
+                            self.bus.dat_w.eq(src),
+                            self.bus.sel.eq(0b1111),
                         ]
 
             with m.Case(Op.OP_IMM):

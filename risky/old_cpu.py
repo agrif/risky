@@ -223,12 +223,12 @@ class Cpu(am.lib.wiring.Component):
         instret = am.Signal(64)
         with m.Switch(self.state):
             with m.Case(State.FETCH_INSTR):
-                m.d.sync += self.state.eq(State.WAIT_INSTR)
+                with m.If(self.bus.ack):
+                    m.d.sync += self.state.eq(State.WAIT_INSTR)
             with m.Case(State.WAIT_INSTR):
-                with m.If(~self.bus.wait):
-                    m.d.sync += self.instr.eq(self.bus.read_data)
-                    m.d.sync += self.state.eq(State.FETCH_REGS)
-                    m.d.sync += instret.eq(instret + 1)
+                m.d.sync += self.instr.eq(self.bus.dat_r)
+                m.d.sync += self.state.eq(State.FETCH_REGS)
+                m.d.sync += instret.eq(instret + 1)
             with m.Case(State.FETCH_REGS):
                 m.d.sync += rs1.eq(self.regs[self.instr.rs1])
                 m.d.sync += rs2.eq(self.regs[self.instr.rs2])
@@ -245,12 +245,12 @@ class Cpu(am.lib.wiring.Component):
                 with m.Else():
                     m.d.sync += self.state.eq(State.FETCH_INSTR)
             with m.Case(State.LOAD):
-                m.d.sync += self.state.eq(State.WAIT_DATA)
+                with m.If(self.bus.ack):
+                    m.d.sync += self.state.eq(State.WAIT_DATA)
             with m.Case(State.WAIT_DATA):
-                with m.If(~self.bus.wait):
-                    m.d.sync += self.state.eq(State.FETCH_INSTR)
+                m.d.sync += self.state.eq(State.FETCH_INSTR)
             with m.Case(State.STORE):
-                with m.If(~self.bus.wait):
+                with m.If(self.bus.ack):
                     m.d.sync += self.state.eq(State.FETCH_INSTR)
 
         # csr reads
@@ -274,7 +274,7 @@ class Cpu(am.lib.wiring.Component):
 
         # loading
         loadstore_addr = rs1 + am.Mux(self.instr.op == Op.STORE, self.instr.imm_s, self.instr.imm_i)
-        load_w = self.bus.read_data
+        load_w = self.bus.dat_r
         load_h = am.Mux(loadstore_addr[1], load_w[16:], load_w[:16])
         load_b = am.Mux(loadstore_addr[0], load_h[8:], load_h[:8])
 
@@ -298,10 +298,10 @@ class Cpu(am.lib.wiring.Component):
 
         # storing
         m.d.comb += [
-            self.bus.write_data[0:8].eq(rs2[0:8]),
-            self.bus.write_data[8:16].eq(am.Mux(loadstore_addr[0], rs2[0:8], rs2[8:16])),
-            self.bus.write_data[16:24].eq(am.Mux(loadstore_addr[1], rs2[0:8], rs2[16:24])),
-            self.bus.write_data[24:32].eq(
+            self.bus.dat_w[0:8].eq(rs2[0:8]),
+            self.bus.dat_w[8:16].eq(am.Mux(loadstore_addr[0], rs2[0:8], rs2[8:16])),
+            self.bus.dat_w[16:24].eq(am.Mux(loadstore_addr[1], rs2[0:8], rs2[16:24])),
+            self.bus.dat_w[24:32].eq(
                 am.Mux(
                     loadstore_addr[0],
                     rs2[0:8],
@@ -314,22 +314,31 @@ class Cpu(am.lib.wiring.Component):
             )
         ]
 
-        store_wmask = am.Signal(4)
-        with m.If(mem_byte_access):
-            m.d.comb += store_wmask.eq(1 << loadstore_addr[:2])
+        rwmask = am.Signal(4)
+        with m.If(self.state == State.FETCH_INSTR):
+            m.d.comb += rwmask.eq(0b1111)
+        with m.Elif(mem_byte_access):
+            m.d.comb += rwmask.eq(1 << loadstore_addr[:2])
         with m.Elif(mem_halfword_access):
-            m.d.comb += store_wmask.eq(0b11 << (loadstore_addr[:2] & 0b10))
+            m.d.comb += rwmask.eq(0b11 << (loadstore_addr[:2] & 0b10))
         with m.Else():
-            m.d.comb += store_wmask.eq(0b1111)
+            m.d.comb += rwmask.eq(0b1111)
 
         # drive memory read
-        m.d.comb += self.bus.addr.eq(am.Mux(
+        m.d.comb += self.bus.adr.eq(am.Mux(
             (self.state == State.WAIT_INSTR) | (self.state == State.FETCH_INSTR),
             self.pc,
             loadstore_addr,
         ).as_unsigned() >> 2)
-        m.d.comb += self.bus.read_en.eq((self.state == State.FETCH_INSTR) | (self.state == State.LOAD))
-        m.d.comb += self.bus.write_en.eq(am.Mux(self.state == State.STORE, store_wmask, 0))
+
+        read_en = (self.state == State.FETCH_INSTR) | (self.state == State.LOAD)
+        write_en = (self.state == State.STORE)
+        m.d.comb += [
+            self.bus.cyc.eq(read_en | write_en),
+            self.bus.stb.eq(read_en | write_en),
+            self.bus.we.eq(write_en),
+            self.bus.sel.eq(rwmask),
+        ]
 
         # write to destination register
         write_back_data = am.Signal(32)

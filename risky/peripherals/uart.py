@@ -71,27 +71,32 @@ class Uart(risky.memory.MemoryComponent):
                 with m.If(baud):
                     m.d.sync += tx_state.eq(self.TxState.IDLE)
 
+        # memory
+        do_write = self.bus.cyc & self.bus.we & self.bus.stb
+        do_read = self.bus.cyc & ~self.bus.we & self.bus.stb
+        m.d.comb += self.bus.ack.eq(do_read | do_write)
+
         # memory reads
-        with m.If(self.bus.read_en):
-            with m.Switch(self.bus.addr):
+        with m.If(do_read):
+            with m.Switch(self.bus.adr):
                 with m.Case(0):
-                    m.d.sync += self.bus.read_data.eq(self.control)
+                    m.d.sync += self.bus.dat_r.eq(self.control)
                 with m.Case(1):
-                    m.d.sync += self.bus.read_data.eq(self.input)
+                    m.d.sync += self.bus.dat_r.eq(self.input)
                 with m.Case(2):
-                    m.d.sync += self.bus.read_data.eq(self.output)
+                    m.d.sync += self.bus.dat_r.eq(self.output)
 
         # memory writes
-        with m.If(self.bus.write_en.any()):
-            mask = risky.memory.mask_from_en(self.bus.write_en)
-            with m.Switch(self.bus.addr):
+        with m.If(do_write):
+            mask = risky.memory.mask_from_sel(self.bus.sel)
+            with m.Switch(self.bus.adr):
                 with m.Case(0):
                     pass
                 with m.Case(1):
                     pass
                 with m.Case(2):
                     with m.If(tx_ready):
-                        char = self.bus.write_data & mask
+                        char = self.bus.dat_w & mask
                         m.d.sync += am.Print(am.Format('{:c}', char), end='')
                         m.d.sync += self.output.eq(char)
                         m.d.sync += tx_bits.eq(7) # one less than total bits
