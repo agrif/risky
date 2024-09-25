@@ -304,6 +304,11 @@ class Cpu(am.lib.wiring.Component):
                 # advance to next state if ack'd
                 with m.If(self.bus.ack):
                     m.d.sync += self.state.eq(State.LOAD_MEM)
+                with m.Else():
+                    m.d.sync += [
+                        self.state.eq(State.EXECUTE),
+                        self.pc.eq(self.pc),
+                    ]
 
                 with m.Switch(self.instr.funct3.mem):
                     with m.Case(Funct3Mem.BYTE):
