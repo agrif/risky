@@ -102,6 +102,9 @@ class MemoryMap(MemoryComponent):
                     e.component.bus.we.eq(self.bus.we),
                     self.bus.ack.eq(e.component.bus.ack),
                 ]
+        with m.Else():
+            # don't stall, just yield garbage
+            m.d.comb += self.bus.ack.eq(self.bus.cyc & self.bus.stb)
 
         return m
 
