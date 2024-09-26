@@ -1,4 +1,5 @@
 import collections
+import contextlib
 import math
 
 import amaranth as am
@@ -70,6 +71,14 @@ class MemoryMap(MemoryComponent):
 
         ram = Ram(depth=word_depth, init=init)
         return self.add(name, ram, addr=addr)
+
+    @contextlib.contextmanager
+    def add_peripherals(self, name, **kwargs):
+        submap = MemoryMap(**kwargs)
+
+        yield submap
+
+        self.add(name, submap)
 
     def elaborate(self, platform):
         m = am.Module()

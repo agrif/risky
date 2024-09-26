@@ -22,7 +22,6 @@ class Soc(am.lib.wiring.Component):
 
         self.cpu = cpu
         self.memory = risky.memory.MemoryMap(alignment=28)
-        self.peripherals = risky.memory.MemoryMap(addr_width=16, alignment=8)
 
         # 64K rom
         self.rom = self.memory.add_rom('rom', 64 * 1024, init=memory_contents)
@@ -30,17 +29,10 @@ class Soc(am.lib.wiring.Component):
         self.memory.add_ram('ram', 32 * 1024)
 
         # peripherals
-
-        self.uart = risky.peripherals.uart.Uart(clk_freq)
-        self.peripherals.add('uart', self.uart)
-
-        self.peripherals.add_rom('clk_freq', 0x4, init=[int(clk_freq)])
-
-        self.output = risky.peripherals.gpio.Output(1)
-        self.peripherals.add('leds', self.output)
-
-        # add peripherals to main memory tree
-        self.memory.add('io', self.peripherals)
+        with self.memory.add_peripherals('io', addr_width=16, alignment=8) as p:
+            self.uart = p.add('uart', risky.peripherals.uart.Uart(clk_freq))
+            p.add_rom('clk_freq', 0x4, init=[int(clk_freq)])
+            self.output = p.add('leds', risky.peripherals.gpio.Output(1))
 
     def set_rom(self, contents):
         self.rom.memory.data.init = contents
