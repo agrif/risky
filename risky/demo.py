@@ -19,7 +19,7 @@ class Demo(am.Elaboratable):
         #soc = am.DomainRenamer('slow')(soc)
         m.submodules.soc = soc
 
-        debugreg = soc.output.regs[0]
+        debugreg = soc.output.output[0]
         
         for i in debugreg:
             try:

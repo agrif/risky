@@ -2,19 +2,13 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+#include "risky.h"
+
 extern void busy_loop(void);
 
-extern volatile struct {
-    struct {
-        bool tx_ready : 1;
-    } control;
-    uint32_t input;
-    uint32_t output;
-} UART;
-
 void uart_send_c(char c) {
-    while (!UART.control.tx_ready);
-    UART.output = c;
+    while (!(IO_UART_CONTROL & 0x01));
+    IO_UART_TX = c;
 }
 
 void uart_send(const char* s) {
@@ -24,8 +18,10 @@ void uart_send(const char* s) {
 }
 
 void main(void) {
+    IO_LEDS_0 = 0;
     while (true) {
         uart_send("Hello, risky!\r\n");
+        IO_LEDS_0 += 1;
         busy_loop();
     }
 }

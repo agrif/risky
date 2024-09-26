@@ -1,112 +1,162 @@
-import dataclasses
+import collections
+import contextlib
+import math
 
 import amaranth as am
 import amaranth.lib.memory
 import amaranth.lib.enum
 
+import amaranth_soc.csr
 import amaranth_soc.wishbone
 
 def mask_from_sel(sel):
     return am.Cat(*(bit.replicate(8) for bit in sel))
 
 class MemoryBus(amaranth_soc.wishbone.Signature):
-    def __init__(self):
-        super().__init__(addr_width=30, data_width=32, granularity=8)
+    def __init__(self, addr_width=30):
+        super().__init__(addr_width=addr_width, data_width=32, granularity=8)
 
 class MemoryComponent(am.lib.wiring.Component):
-    bus: am.lib.wiring.In(MemoryBus())
+    memory_x_access = None
 
-    def __init__(self, depth):
-        super().__init__()
+    def __init__(self, depth=None, addr_width=None, signature={}):
+        if depth is None and addr_width is None:
+            raise ValueError('must specify one of depth, addr_width')
+        if depth is None:
+            depth = 1 << addr_width
+        if addr_width is None:
+            addr_width = int(math.ceil(math.log2(depth)))
+
         self.depth = depth
+        self.addr_width = addr_width
+
+        # FIXME annotation signatures
+
+        signature_with_bus = {
+            'bus': am.lib.wiring.In(MemoryBus(addr_width=self.addr_width)),
+        }
+        signature_with_bus.update(signature)
+
+        super().__init__(signature_with_bus)
+
+        extra = int(math.ceil(math.log2(self.bus.data_width // self.bus.granularity)))
+        self.bus.memory_map = amaranth_soc.memory.MemoryMap(addr_width=self.addr_width + extra, data_width=self.bus.granularity)
+        self.bus.memory_map.add_resource(self, name='data', size=self.depth * (1 << extra))
 
     def __getitem__(self, addr):
         raise RuntimeError('memory component {} does not support simulation access'.format(self.__class__.__name__))
 
+class Peripheral(MemoryComponent):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @contextlib.contextmanager
+    def register_builder(self):
+        extra = int(math.ceil(math.log2(self.bus.data_width // 8)))
+        builder = amaranth_soc.csr.Builder(addr_width=self.addr_width + extra, data_width=8)
+
+        yield builder
+
+        self.csr_bridge = amaranth_soc.csr.Bridge(builder.as_memory_map())
+        self.wb_bridge = amaranth_soc.csr.wishbone.WishboneCSRBridge(self.csr_bridge.bus, data_width=self.bus.data_width)
+
+        self.bus.memory_map = self.wb_bridge.wb_bus.memory_map
+
+    def elaborate_registers(self, platform, m):
+        m.submodules.csr_bridge = self.csr_bridge
+        m.submodules.wb_bridge = self.wb_bridge
+        am.lib.wiring.connect(m, am.lib.wiring.flipped(self.bus), self.wb_bridge.wb_bus)
+
 class MemoryMap(MemoryComponent):
-    @dataclasses.dataclass
-    class Entry:
-        name: str
-        base: int
-        mask: int
-        component: MemoryComponent
+    def __init__(self, addr_width=30, alignment=0):
+        super().__init__(addr_width=addr_width)
+        self.components = collections.OrderedDict()
+        self.decoder = amaranth_soc.wishbone.Decoder(addr_width=self.bus.addr_width, data_width=self.bus.data_width, granularity=self.bus.granularity, alignment=alignment)
+        self.bus.memory_map = self.decoder.bus.memory_map
 
-    def __init__(self):
-        super().__init__(0)
-        self.entries = []
+    def align_to(self, alignment):
+        self.decoder.align_to(alignment)
 
-    def add(self, name, base, mask, component):
-        if base & 0x3 > 0 or mask & 0x3 != 0x3:
-            raise ValueError('base and mask must be word-aligned')
+    def add(self, name, component, addr=None):
+        self.decoder.add(component.bus, name=name, addr=addr)
+        self.components[name] = component
+        return component
 
-        # convert to word addressing
-        base = base >> 2
-        mask = mask >> 2
+    def add_rom(self, name, depth, addr=None, init=[]):
+        parts = self.bus.data_width // self.bus.granularity
+        word_depth = (depth + parts - 1) // parts
 
-        if bin(mask + 1).count('1') != 1:
-            raise ValueError('mask must have all ones in LSBs')
+        rom = Rom(depth=word_depth, init=init)
+        return self.add(name, rom, addr=addr)
 
-        if base & ~mask != base:
-            raise ValueError('base and mask incompatible')
+    def add_ram(self, name, depth, addr=None, init=[]):
+        parts = self.bus.data_width // self.bus.granularity
+        word_depth = (depth + parts - 1) // parts
 
-        if component.depth > mask + 1:
-            raise ValueError('component too large for mask')
-
-        for other in self.entries:
-            other_above = other.base > base + mask
-            other_below = base > other.base + other.mask
-            if not (other_above or other_below):
-                raise ValueError('conflict with map {!r} from 0x{:08x} - 0x{:08x}'.format(other.name, other.base << 2, ((other.base + other.mask) << 2) + 0x3))
-
-        self.entries.append(self.Entry(
-            name=name,
-            base=base,
-            mask=mask,
-            component=component,
-        ))
-
-        self.depth = max(e.base + e.mask + 1 for e in self.entries)
-
-    def add_rom(self, name, base, mask, init=[]):
-        rom = Rom(depth=(mask + 1) >> 2, init=init)
-        self.add(name, base, mask, rom)
-        return rom
-
-    def add_ram(self, name, base, mask, init=[]):
-        ram = Ram(depth=(mask + 1) >> 2, init=init)
-        self.add(name, base, mask, ram)
-        return ram
+        ram = Ram(depth=word_depth, init=init)
+        return self.add(name, ram, addr=addr)
 
     def elaborate(self, platform):
         m = am.Module()
 
-        # do all the stuff that is always on
-        for e in self.entries:
-            m.submodules[e.name] = e.component
+        m.submodules += self.decoder
+        am.lib.wiring.connect(m, am.lib.wiring.flipped(self.bus), self.decoder.bus)
 
-            m.d.comb += [
-                e.component.bus.adr.eq(self.bus.adr & e.mask),
-                e.component.bus.dat_w.eq(self.bus.dat_w),
-            ]
-
-        # handy start to if / elif / else chain
-        with m.If(0):
-            pass
-        for e in self.entries:
-            with m.Elif(self.bus.adr & ~e.mask == e.base):
-                m.d.comb += [
-                    self.bus.dat_r.eq(e.component.bus.dat_r),
-                    e.component.bus.sel.eq(self.bus.sel),
-                    e.component.bus.cyc.eq(self.bus.cyc),
-                    e.component.bus.stb.eq(self.bus.stb),
-                    e.component.bus.we.eq(self.bus.we),
-                    self.bus.ack.eq(e.component.bus.ack),
-                ]
-        with m.Else():
-            # don't stall, just yield garbage
-            m.d.comb += self.bus.ack.eq(self.bus.cyc & self.bus.stb)
+        for name, c in self.components.items():
+            m.submodules[name] = c
 
         return m
+
+    def generate_memory_x(self):
+        memory_x = 'MEMORY\n{\n'
+        for submap, name, (start, end, _) in self.bus.memory_map.windows():
+            name, = name
+            component = self.components.get(name)
+            access = getattr(component, 'memory_x_access')
+            if access is None:
+                continue
+
+            length = max(r.end for r in submap.all_resources())
+            memory_x += '    {} ({}) : ORIGIN = 0x{:x}, LENGTH = {}\n'.format(
+                name.upper(),
+                access,
+                start,
+                length,
+            )
+        memory_x += '}\n'
+        return memory_x
+
+    def generate_header(self):
+        h = ''
+        h += '#ifndef __RISKY_H_INCLUDED\n'
+        h += '#define __RISKY_H_INCLUDED\n\n'
+
+        h += '#if !defined(__ASSEMBLER__)\n'
+        h += '#include <stdint.h>\n'
+        h += '#endif\n\n'
+
+        for r in self.bus.memory_map.all_resources():
+            name = '_'.join('_'.join(str(p) for p in part) for part in r.path)
+            name = name.upper()
+
+            size = r.end - r.start
+            typ = None
+            if size == 1:
+                typ = 'uint8_t'
+            elif size == 2:
+                typ = 'uint16_t'
+            elif size == 4:
+                typ = 'uint32_t'
+
+            h += '#define {:<40} 0x{:08x}\n'.format(name + '_ADDR', r.start)
+            h += '#define {:<40} 0x{:08x}\n'.format(name + '_SIZE', size)
+            if typ:
+                h += '#define {0:<40} (*(volatile {1} *){0}_ADDR)\n'.format(name, typ)
+            # FIXME fields
+            h += '\n'
+
+        h += '#endif /* __RISKY_H_INCLUDED */\n'
+        return h
 
     def __getitem__(self, addr):
         addr = (addr >> 2) << 2
@@ -119,6 +169,8 @@ class MemoryMap(MemoryComponent):
 # unfortunately quartus does not infer memory with byte enables correctly
 # so we must fake one with an async read + sync write
 class Ram(MemoryComponent):
+    memory_x_access = 'rwx'
+
     class RamState(am.lib.enum.Enum):
         READ = 0
         WRITE = 1
@@ -127,9 +179,9 @@ class Ram(MemoryComponent):
         if depth is None:
             depth = len(init)
 
-        super().__init__(depth)
+        super().__init__(depth=depth)
 
-        self.memory = am.lib.memory.Memory(shape=32, depth=depth, init=init)
+        self.memory = am.lib.memory.Memory(shape=self.bus.data_width, depth=depth, init=init)
         self.depth = depth
 
     def elaborate(self, platform):
@@ -179,13 +231,15 @@ class Ram(MemoryComponent):
         return self.memory.data[addr >> 2]
 
 class Rom(MemoryComponent):
+    memory_x_access = 'rx'
+
     def __init__(self, init=[], depth=None):
         if depth is None:
             depth = len(init)
 
-        super().__init__(depth)
+        super().__init__(depth=depth)
 
-        self.memory = am.lib.memory.Memory(shape=32, depth=depth, init=init)
+        self.memory = am.lib.memory.Memory(shape=self.bus.data_width, depth=depth, init=init)
         self.depth = depth
 
     def elaborate(self, platform):

@@ -1,9 +1,14 @@
+INCLUDE memory.x
+
+/* memory.x should include a definition like:
+
 MEMORY
 {
-    /* NOTE 1 K = 1 KiB = 1024 bytes */
+    // NOTE 1 K = 1 KiB = 1024 bytes
     ROM (xr) : ORIGIN = 0x00000000, LENGTH = 64K
     RAM (rw) : ORIGIN = 0x10000000, LENGTH = 32K
 }
+*/
 
 EXTERN(_reset_vector);
 ENTRY(_reset_vector);
@@ -15,14 +20,9 @@ SECTIONS
     PROVIDE(_stack_start = _ram_end);
 
     /* use gp for io by default */
+    /* FIXME use it for sbss, sdata, etc. */
     /* FIXME why do I need -1 here, -0x800 should be in 12-bit range... */
     PROVIDE(__global_pointer$ = 0x20000000 + 0x800 - 1);
-
-    /* define peripherals here so they can use linker relaxation */
-    /* FIXME how to do this in C instead */
-    UART = 0x20000000;
-    CLK_FREQ = 0x20000010;
-    LEDS = 0x20000014;
 
     .text : ALIGN(4)
     {

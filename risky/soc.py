@@ -21,19 +21,26 @@ class Soc(am.lib.wiring.Component):
             ])
 
         self.cpu = cpu
-        self.memory = risky.memory.MemoryMap()
-        self.output = risky.peripherals.gpio.Output(1)
-        self.uart = risky.peripherals.uart.Uart(clk_freq)
+        self.memory = risky.memory.MemoryMap(alignment=28)
+        self.peripherals = risky.memory.MemoryMap(addr_width=16, alignment=8)
 
         # 64K rom
-        self.rom = self.memory.add_rom('rom', 0x0000_0000, 0x0001_0000 - 1, init=memory_contents)
+        self.rom = self.memory.add_rom('rom', 64 * 1024, init=memory_contents)
         # 32K ram
-        self.memory.add_ram('ram', 0x1000_0000, 0x8000 - 1)
+        self.memory.add_ram('ram', 32 * 1024)
 
         # peripherals
-        self.memory.add('uart', 0x2000_0000, 0x10 - 1, self.uart)
-        self.memory.add_rom('clk_freq', 0x2000_0010, 0x4 - 1, init=[int(clk_freq)])
-        self.memory.add('output', 0x2000_0014, 0x4 - 1, self.output)
+
+        self.uart = risky.peripherals.uart.Uart(clk_freq)
+        self.peripherals.add('uart', self.uart)
+
+        self.peripherals.add_rom('clk_freq', 0x4, init=[int(clk_freq)])
+
+        self.output = risky.peripherals.gpio.Output(1)
+        self.peripherals.add('leds', self.output)
+
+        # add peripherals to main memory tree
+        self.memory.add('io', self.peripherals)
 
     def set_rom(self, contents):
         self.rom.memory.data.init = contents
@@ -44,6 +51,9 @@ class Soc(am.lib.wiring.Component):
         our_kwargs.update(kwargs)
         compiler = risky.compiler.Compiler(**our_kwargs)
         with compiler as c:
+            c.include_source('memory.x', self.memory.generate_memory_x())
+            c.include_source('risky.h', self.memory.generate_header())
+
             yield c
 
     @classmethod
