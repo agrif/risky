@@ -9,7 +9,8 @@ import elftools.elf.elffile
 import importlib_resources
 
 class Compiler:
-    RUNTIME_FILES = ['crt0.s', 'busy_loop.s']
+    RUNTIME_FILES = ['crt0.s']
+    EXTRA_FILES = ['csr.h']
 
     def __init__(self, runtime=True, optimize=True, march='rv32i', mabi='ilp32'):
         self.runtime = importlib_resources.files('risky.runtime')
@@ -27,6 +28,9 @@ class Compiler:
             self.gcc.append('-O3')
 
         self.linkerscript = self.copy_runtime_file('link.x')
+        for name in self.EXTRA_FILES:
+            self.copy_runtime_file(name)
+
         self.objectpaths = []
         if runtime:
             self.add_runtime()
