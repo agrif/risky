@@ -143,12 +143,16 @@ class MemoryMap(MemoryComponent):
         return h
 
     def __getitem__(self, addr):
-        addr = (addr >> 2) << 2
-        for e in self.entries:
-            if ((addr >> 2) & ~e.mask) == e.base:
-                return e.component[addr & e.mask]
+        r = self.bus.memory_map.decode_address(addr)
+        if not r:
+            raise KeyError('address 0x{:08x} does not map to a component'.format(addr))
 
-        raise KeyError('address 0x{:08x} does not map to a component'.format(addr))
+        if not isinstance(r, MemoryComponent):
+            raise KeyError('address 0x{:08x} does not support simulation reads'.format(addr))
+
+        info = self.bus.memory_map.find_resource(r)
+        internal_addr = addr - info.start
+        return r[internal_addr]
 
 # unfortunately quartus does not infer memory with byte enables correctly
 # so we must fake one with an async read + sync write
@@ -212,7 +216,7 @@ class Ram(MemoryComponent):
         return m
 
     def __getitem__(self, addr):
-        return self.memory.data[addr >> 2]
+        return self.memory.data[addr >> (self.bus.memory_map.addr_width - self.bus.addr_width)]
 
 class Rom(MemoryComponent):
     memory_x_access = 'rx'
@@ -247,4 +251,4 @@ class Rom(MemoryComponent):
         return m
 
     def __getitem__(self, addr):
-        return self.memory.data[addr >> 2]
+        return self.memory.data[addr >> (self.bus.memory_map.addr_width - self.bus.addr_width)]
