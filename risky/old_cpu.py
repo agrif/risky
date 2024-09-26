@@ -223,12 +223,12 @@ class Cpu(am.lib.wiring.Component):
         instret = am.Signal(64)
         with m.Switch(self.state):
             with m.Case(State.FETCH_INSTR):
-                with m.If(self.bus.ack):
-                    m.d.sync += self.state.eq(State.WAIT_INSTR)
+                m.d.sync += self.state.eq(State.WAIT_INSTR)
             with m.Case(State.WAIT_INSTR):
-                m.d.sync += self.instr.eq(self.bus.dat_r)
-                m.d.sync += self.state.eq(State.FETCH_REGS)
-                m.d.sync += instret.eq(instret + 1)
+                with m.If(self.bus.ack):
+                    m.d.sync += self.instr.eq(self.bus.dat_r)
+                    m.d.sync += self.state.eq(State.FETCH_REGS)
+                    m.d.sync += instret.eq(instret + 1)
             with m.Case(State.FETCH_REGS):
                 m.d.sync += rs1.eq(self.regs[self.instr.rs1])
                 m.d.sync += rs2.eq(self.regs[self.instr.rs2])
@@ -245,10 +245,10 @@ class Cpu(am.lib.wiring.Component):
                 with m.Else():
                     m.d.sync += self.state.eq(State.FETCH_INSTR)
             with m.Case(State.LOAD):
-                with m.If(self.bus.ack):
-                    m.d.sync += self.state.eq(State.WAIT_DATA)
+                m.d.sync += self.state.eq(State.WAIT_DATA)
             with m.Case(State.WAIT_DATA):
-                m.d.sync += self.state.eq(State.FETCH_INSTR)
+                with m.If(self.bus.ack):
+                    m.d.sync += self.state.eq(State.FETCH_INSTR)
             with m.Case(State.STORE):
                 with m.If(self.bus.ack):
                     m.d.sync += self.state.eq(State.FETCH_INSTR)
@@ -331,7 +331,7 @@ class Cpu(am.lib.wiring.Component):
             loadstore_addr,
         ).as_unsigned() >> 2)
 
-        read_en = (self.state == State.FETCH_INSTR) | (self.state == State.LOAD)
+        read_en = (self.state == State.FETCH_INSTR) | (self.state == State.WAIT_INSTR)| (self.state == State.LOAD) | (self.state == State.WAIT_DATA)
         write_en = (self.state == State.STORE)
         m.d.comb += [
             self.bus.cyc.eq(read_en | write_en),

@@ -63,8 +63,9 @@ class Cpu(am.lib.wiring.Component):
         self.alu = Alu(self.xlen)
 
         # state saved between the two states of load
+        self.load_mem_addr = am.Signal(self.bus.adr.shape())
+        self.load_mem_sel = am.Signal(self.bus.sel.shape())
         self.load_mem_shift = am.Signal(2) # lower bits of byte-address
-        self.load_mem_mask = am.Signal(2) # [bhw]: 00 01 11
         self.load_mem_signed = am.Signal(1)
 
         self.extensions = collections.OrderedDict()
@@ -137,17 +138,25 @@ class Cpu(am.lib.wiring.Component):
                     self.bus.sel.eq(0b1111),
                 ]
 
-                with m.If(self.bus.ack):
-                    m.d.sync += self.state.eq(State.LOAD_INSTR)
+                m.d.sync += self.state.eq(State.LOAD_INSTR)
 
             with m.Case(State.LOAD_INSTR):
-                instr = Instruction(self.bus.dat_r)
-                m.d.sync += [
-                    self.instr.eq(instr),
-                    self.rs1.eq(self.regs[instr.rs1]),
-                    self.rs2.eq(self.regs[instr.rs2]),
-                    self.state.eq(State.EXECUTE),
+                # hold read signals
+                m.d.comb += [
+                    self.bus.adr.eq(self.pc[2:]),
+                    self.bus.cyc.eq(1),
+                    self.bus.stb.eq(1),
+                    self.bus.sel.eq(0b1111),
                 ]
+
+                with m.If(self.bus.ack):
+                    instr = Instruction(self.bus.dat_r)
+                    m.d.sync += [
+                        self.instr.eq(instr),
+                        self.rs1.eq(self.regs[instr.rs1]),
+                        self.rs2.eq(self.regs[instr.rs2]),
+                        self.state.eq(State.EXECUTE),
+                    ]
 
             with m.Case(State.EXECUTE):
                 # default to advancing to next instruction,
@@ -170,32 +179,41 @@ class Cpu(am.lib.wiring.Component):
                         m.d.sync += am.Print(info)
 
             with m.Case(State.LOAD_MEM):
-                # read shifted data
-                data = self.bus.dat_r >> (self.load_mem_shift << 3);
-
-                # mask the data
-                mask = am.Cat(
-                    am.C(0xff, 8),
-                    am.Cat(*(self.load_mem_mask[0] for _ in range(8))),
-                    am.Cat(*(self.load_mem_mask[1] for _ in range(16))),
-                )
-                data &= mask
-
-                # sign extend data
-                sign = self.load_mem_signed & am.Mux(
-                    self.load_mem_mask[0],
-                    data[15],
-                    data[7],
-                )
-                data |= (~mask) & am.Cat(*(sign for _ in range(self.xlen)))
-
+                # maintain our signals
                 m.d.comb += [
-                    # set rd to our computed data
-                    self.rd.eq(data),
-                    self.rd_write_en.eq(1),
+                    self.bus.adr.eq(self.load_mem_addr),
+                    self.bus.sel.eq(self.load_mem_sel),
+                    self.bus.cyc.eq(1),
+                    self.bus.stb.eq(1),
                 ]
 
-                m.d.sync +=  self.state.eq(State.FETCH_INSTR)
+                with m.If(self.bus.ack):
+                    data = self.bus.dat_r
+
+                    # shift data
+                    data = data >> (self.load_mem_shift << 3)
+
+                    # mask data by sel
+                    mask = am.Cat(
+                        *(sel.replicate(8) for sel in self.load_mem_sel),
+                    ) >> (self.load_mem_shift << 3)
+                    data &= mask
+
+                    # sign extend data
+                    sign = self.load_mem_signed & am.Mux(
+                        self.load_mem_sel.xor(),
+                        data[7],
+                        data[15],
+                    )
+                    data |= (~mask) & sign.replicate(self.xlen)
+
+                    m.d.comb += [
+                        # set rd to our computed data
+                        self.rd.eq(data),
+                        self.rd_write_en.eq(1),
+                    ]
+
+                    m.d.sync +=  self.state.eq(State.FETCH_INSTR)
 
         for v in self.extensions.values():
             v.elaborate(platform, self, m)
@@ -301,58 +319,60 @@ class Cpu(am.lib.wiring.Component):
                     self.bus.stb.eq(1),
                 ]
 
-                # advance to next state if ack'd
-                with m.If(self.bus.ack):
-                    m.d.sync += self.state.eq(State.LOAD_MEM)
-                with m.Else():
-                    m.d.sync += [
-                        self.state.eq(State.EXECUTE),
-                        self.pc.eq(self.pc),
-                    ]
+                # advance to LOAD_MEM and store the address
+                m.d.sync += [
+                    self.state.eq(State.LOAD_MEM),
+                    self.load_mem_addr.eq(dest[2:]),
+                ]
 
                 with m.Switch(self.instr.funct3.mem):
                     with m.Case(Funct3Mem.BYTE):
                         self.valid_instruction(platform, m)
-                        m.d.comb += self.bus.sel.eq(1 << dest[:2])
+                        sel = 1 << dest[:2]
+                        m.d.comb += self.bus.sel.eq(sel)
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2]),
-                            self.load_mem_mask.eq(0b00),
+                            self.load_mem_sel.eq(sel),
                             self.load_mem_signed.eq(1),
                         ]
 
                     with m.Case(Funct3Mem.HALF):
                         self.valid_instruction(platform, m)
-                        m.d.comb += self.bus.sel.eq(0b11 << (dest[:2] & 0b10))
+                        sel = 0b11 << (dest[:2] & 0b10)
+                        m.d.comb += self.bus.sel.eq(sel)
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2] & 0b10),
-                            self.load_mem_mask.eq(0b01),
+                            self.load_mem_sel.eq(sel),
                             self.load_mem_signed.eq(1),
                         ]
 
                     with m.Case(Funct3Mem.WORD):
                         self.valid_instruction(platform, m)
-                        m.d.comb += self.bus.sel.eq(0b1111)
+                        sel = 0b1111
+                        m.d.comb += self.bus.sel.eq(sel)
                         m.d.sync += [
                             self.load_mem_shift.eq(0),
-                            self.load_mem_mask.eq(0b11),
+                            self.load_mem_sel.eq(sel),
                             self.load_mem_signed.eq(0),
                         ]
 
                     with m.Case(Funct3Mem.BYTE_U):
                         self.valid_instruction(platform, m)
-                        m.d.comb += self.bus.sel.eq(1 << dest[:2])
+                        sel = 1 << dest[:2]
+                        m.d.comb += self.bus.sel.eq(sel)
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2]),
-                            self.load_mem_mask.eq(0b00),
+                            self.load_mem_sel.eq(sel),
                             self.load_mem_signed.eq(0),
                         ]
 
                     with m.Case(Funct3Mem.HALF_U):
                         self.valid_instruction(platform, m)
-                        m.d.comb += self.bus.sel.eq(0b11 << (dest[:2] & 0b10))
+                        sel = 0b11 << (dest[:2] & 0b10)
+                        m.d.comb += self.bus.sel.eq(sel)
                         m.d.sync += [
                             self.load_mem_shift.eq(dest[:2] & 0b10),
-                            self.load_mem_mask.eq(0b01),
+                            self.load_mem_sel.eq(sel),
                             self.load_mem_signed.eq(0),
                         ]
 

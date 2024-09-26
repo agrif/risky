@@ -7,7 +7,7 @@ import amaranth.lib.enum
 import amaranth_soc.wishbone
 
 def mask_from_sel(sel):
-    return am.Cat(*(am.Mux(bit, 0xff, 0) for bit in sel))
+    return am.Cat(*(bit.replicate(8) for bit in sel))
 
 class MemoryBus(amaranth_soc.wishbone.Signature):
     def __init__(self):
@@ -89,35 +89,22 @@ class MemoryMap(MemoryComponent):
                 e.component.bus.dat_w.eq(self.bus.dat_w),
             ]
 
-        # latch the read output address so it stays put even if adr changes
-        read_adr = am.Signal(self.bus.adr.shape())
-
         # handy start to if / elif / else chain
         with m.If(0):
             pass
         for e in self.entries:
             with m.Elif(self.bus.adr & ~e.mask == e.base):
                 m.d.comb += [
+                    self.bus.dat_r.eq(e.component.bus.dat_r),
                     e.component.bus.sel.eq(self.bus.sel),
                     e.component.bus.cyc.eq(self.bus.cyc),
                     e.component.bus.stb.eq(self.bus.stb),
                     e.component.bus.we.eq(self.bus.we),
                     self.bus.ack.eq(e.component.bus.ack),
                 ]
-
-                # save this address to set dat_r later
-                with m.If(self.bus.cyc & self.bus.stb & self.bus.ack & ~self.bus.we):
-                    m.d.sync += read_adr.eq(self.bus.adr)
         with m.Else():
             # don't stall, just yield garbage
             m.d.comb += self.bus.ack.eq(self.bus.cyc & self.bus.stb)
-
-        # use saved address to set dat_r
-        with m.If(0):
-            pass
-        for e in self.entries:
-            with m.Elif(read_adr & ~e.mask == e.base):
-                m.d.comb += self.bus.dat_r.eq(e.component.bus.dat_r)
 
         return m
 
@@ -168,14 +155,21 @@ class Ram(MemoryComponent):
             write.addr.eq(self.bus.adr),
             write.data.eq(internal_write_data),
             write.en.eq((state == self.RamState.WRITE) & do_write),
-
-            self.bus.ack.eq(do_read | ((state == self.RamState.WRITE) & do_write)),
         ]
+
+        # default to 0
+        m.d.sync += self.bus.ack.eq(0)
+
+        with m.If(do_read & ~self.bus.ack):
+            m.d.sync += self.bus.ack.eq(1)
 
         with m.Switch(state):
             with m.Case(self.RamState.READ):
                 with m.If(do_write):
-                    m.d.sync += state.eq(self.RamState.WRITE)
+                    m.d.sync += [
+                        state.eq(self.RamState.WRITE),
+                        self.bus.ack.eq(1),
+                    ]
             with m.Case(self.RamState.WRITE):
                 m.d.sync += state.eq(self.RamState.READ)
 
@@ -206,10 +200,11 @@ class Rom(MemoryComponent):
 
         m.d.comb += [
             read.addr.eq(self.bus.adr),
-            self.bus.ack.eq(do_read | do_write),
             self.bus.dat_r.eq(read.data),
             read.en.eq(do_read),
         ]
+
+        m.d.sync += self.bus.ack.eq((do_read | do_write) & ~self.bus.ack)
 
         return m
 
