@@ -19,6 +19,8 @@ class Compiler:
             'riscv-none-elf-gcc',
             '-march=' + march,
             '-mabi=' + mabi,
+            '-L', self.d.name,
+            '-I', self.d.name,
         ]
 
         if optimize:
@@ -40,6 +42,15 @@ class Compiler:
 
     def path(self, *components):
         return os.path.join(self.d.name, *components)
+
+    def include(self, fname):
+        with open(fname) as src:
+            with open(self.path(fname), 'w') as dest:
+                dest.write(src.read())
+
+    def include_source(self, fname, data):
+        with open(self.path(fname), 'w') as f:
+            f.write(data)
 
     def add(self, fname):
         os.makedirs(self.path('objects'), exist_ok=True)
