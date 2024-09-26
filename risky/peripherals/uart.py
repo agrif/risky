@@ -8,9 +8,6 @@ import risky.csr
 
 # https://gist.github.com/olofk/e91fba2572396f55525f8814f05fb33d
 class Uart(risky.csr.Peripheral):
-    # FIXME annotation signatures please
-    #tx: am.lib.wiring.Out(1)
-
     class TxState(amaranth.lib.enum.Enum):
         IDLE = 0
         START = 1

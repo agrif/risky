@@ -25,15 +25,16 @@ class MemoryComponent(am.lib.wiring.Component):
         self.depth = depth
         self.addr_width = addr_width
 
-        # FIXME annotation signatures
-
+        # add bus to it, but let it override bus if it does
         signature_with_bus = {
             'bus': am.lib.wiring.In(MemoryBus(addr_width=self.addr_width)),
         }
-        signature_with_bus.update(signature)
 
+        signature_with_bus.update(signature)
         super().__init__(signature_with_bus)
 
+        # create a default memory map
+        # careful -- memory map is addressed in self.bus.granularity
         extra = int(math.ceil(math.log2(self.bus.data_width // self.bus.granularity)))
         self.bus.memory_map = amaranth_soc.memory.MemoryMap(addr_width=self.addr_width + extra, data_width=self.bus.granularity)
         self.bus.memory_map.add_resource(self, name='data', size=self.depth * (1 << extra))

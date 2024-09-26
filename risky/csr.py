@@ -8,9 +8,6 @@ import amaranth_soc.csr
 import risky.memory
 
 class Peripheral(risky.memory.MemoryComponent):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @contextlib.contextmanager
     def register_builder(self):
         extra = int(math.ceil(math.log2(self.bus.data_width // 8)))
