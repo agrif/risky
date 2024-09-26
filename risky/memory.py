@@ -1,16 +1,11 @@
 import collections
-import contextlib
 import math
 
 import amaranth as am
 import amaranth.lib.memory
 import amaranth.lib.enum
 
-import amaranth_soc.csr
 import amaranth_soc.wishbone
-
-def mask_from_sel(sel):
-    return am.Cat(*(bit.replicate(8) for bit in sel))
 
 class MemoryBus(amaranth_soc.wishbone.Signature):
     def __init__(self, addr_width=30):
@@ -45,27 +40,6 @@ class MemoryComponent(am.lib.wiring.Component):
 
     def __getitem__(self, addr):
         raise RuntimeError('memory component {} does not support simulation access'.format(self.__class__.__name__))
-
-class Peripheral(MemoryComponent):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    @contextlib.contextmanager
-    def register_builder(self):
-        extra = int(math.ceil(math.log2(self.bus.data_width // 8)))
-        builder = amaranth_soc.csr.Builder(addr_width=self.addr_width + extra, data_width=8)
-
-        yield builder
-
-        self.csr_bridge = amaranth_soc.csr.Bridge(builder.as_memory_map())
-        self.wb_bridge = amaranth_soc.csr.wishbone.WishboneCSRBridge(self.csr_bridge.bus, data_width=self.bus.data_width)
-
-        self.bus.memory_map = self.wb_bridge.wb_bus.memory_map
-
-    def elaborate_registers(self, platform, m):
-        m.submodules.csr_bridge = self.csr_bridge
-        m.submodules.wb_bridge = self.wb_bridge
-        am.lib.wiring.connect(m, am.lib.wiring.flipped(self.bus), self.wb_bridge.wb_bus)
 
 class MemoryMap(MemoryComponent):
     def __init__(self, addr_width=30, alignment=0):

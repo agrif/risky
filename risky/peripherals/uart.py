@@ -4,10 +4,10 @@ import amaranth.lib.enum
 import amaranth_soc.csr
 import amaranth_soc.csr.wishbone
 
-import risky.memory
+import risky.csr
 
 # https://gist.github.com/olofk/e91fba2572396f55525f8814f05fb33d
-class Uart(risky.memory.Peripheral):
+class Uart(risky.csr.Peripheral):
     # FIXME annotation signatures please
     #tx: am.lib.wiring.Out(1)
 

@@ -2,9 +2,9 @@ import amaranth as am
 import amaranth_soc.csr
 import amaranth_soc.csr.wishbone
 
-import risky.memory
+import risky.csr
 
-class Output(risky.memory.Peripheral):
+class Output(risky.csr.Peripheral):
     class Register(amaranth_soc.csr.Register, access='rw'):
         value: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 32)
 
