@@ -9,7 +9,7 @@ class Output(risky.csr.Peripheral):
         value: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 32)
 
     def __init__(self, depth = 1):
-        super().__init__(depth)
+        super().__init__(depth=depth * 4)
 
         with self.register_builder() as b:
             self.regs = [b.add('{}'.format(i), self.Register()) for i in range(depth)]

@@ -24,7 +24,7 @@ class Uart(risky.csr.Peripheral):
         data: amaranth_soc.csr.Field(amaranth_soc.csr.action.W, 8)
 
     def __init__(self, clk_freq_hz, baud_rate=115200):
-        super().__init__(depth=1, signature={
+        super().__init__(depth=3, signature={
             'tx': am.lib.wiring.Out(1),
         })
 

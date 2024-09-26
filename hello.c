@@ -28,7 +28,7 @@ uint64_t get_cycle(void) {
 
 void sleep_ms(uint16_t ms) {
     uint64_t now = get_cycle();
-    uint64_t amount = (uint64_t)IO_CLK_FREQ_DATA * (uint64_t)ms / 1000;
+    uint64_t amount = (uint64_t)IO_INFO_CLK_FREQ * (uint64_t)ms / 1000;
     uint64_t later = now + amount;
 
     while (get_cycle() < later);

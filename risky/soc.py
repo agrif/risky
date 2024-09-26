@@ -2,11 +2,35 @@ import contextlib
 
 import amaranth as am
 
+import amaranth_soc.csr
+
 import risky.compiler
 import risky.cpu
 import risky.memory
+import risky.csr
 import risky.peripherals.gpio
 import risky.peripherals.uart
+
+class Info(risky.csr.Peripheral):
+    class ClkFreq(amaranth_soc.csr.Register, access='r'):
+        value: amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 32)
+
+    def __init__(self, clk_freq_hz):
+        super().__init__(depth=4)
+
+        self.clk_freq_hz = int(clk_freq_hz)
+
+        with self.register_builder() as b:
+            self.reg_clk_freq = b.add('clk_freq', self.ClkFreq())
+
+    def elaborate(self, platform):
+        m = am.Module()
+
+        self.elaborate_registers(platform, m)
+
+        m.d.comb += self.reg_clk_freq.f.value.r_data.eq(self.clk_freq_hz)
+
+        return m
 
 class Soc(am.lib.wiring.Component):
     tx: am.lib.wiring.Out(1)
@@ -31,7 +55,7 @@ class Soc(am.lib.wiring.Component):
         # peripherals
         with self.memory.add_peripherals('io', addr_width=16, alignment=8) as p:
             self.uart = p.add('uart', risky.peripherals.uart.Uart(clk_freq))
-            p.add_rom('clk_freq', 0x4, init=[int(clk_freq)])
+            p.add('info', Info(clk_freq))
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
 
     def set_rom(self, contents):

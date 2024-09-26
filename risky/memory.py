@@ -43,6 +43,37 @@ class MemoryComponent(am.lib.wiring.Component):
     def __getitem__(self, addr):
         raise RuntimeError('memory component {} does not support simulation access'.format(self.__class__.__name__))
 
+class CSRMap(MemoryComponent):
+    def __init__(self, addr_width=24, alignment=0):
+        super().__init__(addr_width=addr_width - 2)
+
+        self.components = collections.OrderedDict()
+        self.decoder = amaranth_soc.csr.Decoder(addr_width=addr_width, data_width=8, alignment=alignment)
+
+    def align_to(self, alignment):
+        self.decoder.align_to(alignment)
+
+    def add(self, name, component, addr=None):
+        self.decoder.add(component.bus, name=name, addr=addr)
+        self.components[name] = component
+        return component
+
+    def finish_bridge(self):
+        self.bridge = amaranth_soc.csr.wishbone.WishboneCSRBridge(self.decoder.bus, data_width=self.bus.data_width)
+        self.bus.memory_map = self.bridge.wb_bus.memory_map
+
+    def elaborate(self, platform):
+        m = am.Module()
+
+        m.submodules._decoder = self.decoder
+        m.submodules._bridge = self.bridge
+        am.lib.wiring.connect(m, am.lib.wiring.flipped(self.bus), self.bridge.wb_bus)
+
+        for name, c in self.components.items():
+            m.submodules[name] = c
+
+        return m
+
 class MemoryMap(MemoryComponent):
     def __init__(self, addr_width=30, alignment=0):
         super().__init__(addr_width=addr_width)
@@ -74,16 +105,17 @@ class MemoryMap(MemoryComponent):
 
     @contextlib.contextmanager
     def add_peripherals(self, name, **kwargs):
-        submap = MemoryMap(**kwargs)
+        submap = CSRMap(**kwargs)
 
         yield submap
 
+        submap.finish_bridge()
         self.add(name, submap)
 
     def elaborate(self, platform):
         m = am.Module()
 
-        m.submodules += self.decoder
+        m.submodules._decoder = self.decoder
         am.lib.wiring.connect(m, am.lib.wiring.flipped(self.bus), self.decoder.bus)
 
         for name, c in self.components.items():
