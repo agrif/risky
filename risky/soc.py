@@ -39,6 +39,8 @@ class Soc(am.lib.wiring.Component):
         super().__init__()
 
         if cpu is None:
+            #import risky.old_cpu
+            #cpu = risky.old_cpu.Cpu()
             cpu = risky.cpu.Cpu([
                 risky.cpu.Zicsr(),
                 risky.cpu.Zicntr(),
@@ -47,10 +49,10 @@ class Soc(am.lib.wiring.Component):
         self.cpu = cpu
         self.memory = risky.memory.MemoryMap(alignment=28)
 
-        # 64K rom
-        self.rom = self.memory.add_rom('rom', 64 * 1024, init=memory_contents)
-        # 32K ram
-        self.memory.add_ram('ram', 32 * 1024)
+        # 32K rom
+        self.rom = self.memory.add_rom('rom', 32 * 1024, init=memory_contents)
+        # 8K ram
+        self.memory.add_ram('ram', 8 * 1024)
 
         # peripherals
         with self.memory.add_peripherals('io', addr_width=16, alignment=8) as p:

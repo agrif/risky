@@ -25,7 +25,8 @@ class Compiler:
         ]
 
         if optimize:
-            self.gcc.append('-O3')
+            #self.gcc.append('-O3')
+            self.gcc.append('-Os')
 
         self.linkerscript = self.copy_runtime_file('link.x')
         for name in self.EXTRA_FILES:
