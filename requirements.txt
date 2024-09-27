@@ -1,4 +1,4 @@
-amaranth==0.5.2
+amaranth @ git+https://github.com/amaranth-lang/amaranth.git@e30d822a7d93ee615e70e95a9958051dcc794802
 amaranth-boards @ git+https://github.com/amaranth-lang/amaranth-boards.git@19b97324ecf9111c5d16377af79f82aad761c476
 amaranth-soc @ git+https://github.com/amaranth-lang/amaranth-soc.git@746709e1e992bccf6e2362450243cafd00d72a14
 amaranth-yosys==0.40.0.0.post99

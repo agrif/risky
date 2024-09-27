@@ -13,6 +13,7 @@ class Demo(am.Elaboratable):
 
         freq = platform.default_clk_frequency
         #m.submodules.clockworks = clockworks = risky.clockworks.Clockworks('slow', platform.default_clk_frequency, 1_000_000)
+        #m.domains += clockworks.domain
         #freq = clockworks.out_freq
 
         soc = risky.soc.Soc.with_source_files(freq, *self.sources)
