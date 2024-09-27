@@ -5,8 +5,13 @@
 #include "risky.h"
 #include "csr.h"
 
+void uart_set_baud(uint32_t baud) {
+    uint32_t divisor = (IO_INFO_CLK_FREQ + (baud / 2)) / baud;
+    IO_UART_BAUD = divisor - 1;
+}
+
 void uart_send_c(char c) {
-    while (!(IO_UART_CONTROL & 0x01));
+    while (!(IO_UART_TX_CONTROL & 0x01));
     IO_UART_TX = c;
 }
 
@@ -35,7 +40,9 @@ void sleep_ms(uint16_t ms) {
 }
 
 void main(void) {
+    uart_set_baud(115200);
     IO_LEDS_0 = 0;
+
     while (true) {
         uart_send("Hello, risky!\r\n");
         IO_LEDS_0 += 1;

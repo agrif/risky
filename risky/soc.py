@@ -56,7 +56,7 @@ class Soc(am.lib.wiring.Component):
 
         # peripherals
         with self.memory.add_peripherals('io', addr_width=16, alignment=8) as p:
-            self.uart = p.add('uart', risky.peripherals.uart.Uart(clk_freq))
+            self.uart = p.add('uart', risky.peripherals.uart.Peripheral())
             p.add('info', Info(clk_freq))
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
 
