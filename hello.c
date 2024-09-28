@@ -11,7 +11,7 @@ void uart_set_baud(uint32_t baud) {
 }
 
 void uart_send_c(char c) {
-    while (!(IO_UART_TX_CONTROL & 0x01));
+    while (!(IO_UART_TX_CONTROL & IO_UART_TX_CONTROL_READY_MASK));
     IO_UART_TX = c;
 }
 

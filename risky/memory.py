@@ -242,14 +242,35 @@ class MemoryMap(MemoryComponent):
 
             leaf = '_ADDR' if n.resource else '_BASE'
 
+            def define(name, fmt, *args, **kwargs):
+                nonlocal h
+                h += '#define {:<40} '.format(name) + fmt.format(*args, **kwargs) + '\n'
+
             if len(n.path) == 1:
-                h += '#define {:<40} 0x{:08x}\n'.format(name + leaf, n.start)
+                define(name + leaf, '0x{:08x}', n.start)
             else:
-                h += '#define {:<40} ({}_BASE + 0x{:x})\n'.format(name + leaf, parent, n.offset)
-            h += '#define {:<40} 0x{:x}\n'.format(name + '_SIZE', n.size)
+                define(name + leaf, '({}_BASE + 0x{:x})', parent, n.offset)
+
+            define(name + '_SIZE', '0x{:x}', n.size)
             if n.resource and n.c_type:
-                h += '#define {0:<40} (*(volatile {2} *){0}{1})\n'.format(name, leaf, n.c_type)
-            # FIXME fields
+                define(name, '(*(volatile {} *){}{})', n.c_type, name, leaf)
+                if isinstance(n.resource, amaranth_soc.csr.Register):
+                    field_start = 0
+                    for fn, fv in n.resource:
+                        if not fn:
+                            # whole register is field
+                            break
+
+                        fieldname = name + '_' + '_'.join(fn).upper()
+                        field_size = fv.port.shape.width
+                        field_end = field_start + field_size
+
+                        h += '\n'
+                        define(fieldname + '_SHIFT', '{}', field_start)
+                        define(fieldname + '_WIDTH', '{}', field_size)
+                        define(fieldname + '_MASK', '(((1 << {0}_WIDTH) - 1) << {0}_SHIFT)', fieldname)
+
+                        field_start = field_end
             h += '\n'
 
         h += '#endif /* __RISKY_H_INCLUDED */\n'
