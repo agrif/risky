@@ -146,13 +146,22 @@ class Peripheral(risky.csr.Peripheral):
         max: amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 7)
 
     class Baud(amaranth_soc.csr.Register, access='rw'):
-        divisor: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 32, init=-1)
+        def __init__(self):
+            super().__init__(
+                amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 32, init=-1),
+            )
 
     class Rx(amaranth_soc.csr.Register, access='r'):
-        data: amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 8)
+        def __init__(self):
+            super().__init__(
+                amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 8),
+            )
 
     class Tx(amaranth_soc.csr.Register, access='w'):
-        data: amaranth_soc.csr.Field(amaranth_soc.csr.action.W, 8)
+        def __init__(self):
+            super().__init__(
+                amaranth_soc.csr.Field(amaranth_soc.csr.action.W, 8),
+            )
 
     def __init__(self, fifo_depth=8):
         if fifo_depth > (1 << 6): # 64
@@ -197,16 +206,16 @@ class Peripheral(risky.csr.Peripheral):
             self.tx.eq(device.tx),
             device.rx.eq(self.rx),
 
-            device.divisor.eq(self.baud.f.divisor.data),
+            device.divisor.eq(self.baud.f.data),
             # divisor_stb set in sync
 
             self.tx_control.f.ready.r_data.eq(device.tx_ready),
             self.tx_control.f.max.r_data.eq(self.fifo_depth),
-            device.tx_data.eq(self.tx_reg.f.data.w_data),
-            device.tx_stb.eq(self.tx_reg.f.data.w_stb),
+            device.tx_data.eq(self.tx_reg.f.w_data),
+            device.tx_stb.eq(self.tx_reg.f.w_stb),
         ]
 
         # sync over here so it's delayed one cycle so divisor.data is updated
-        m.d.sync += device.divisor_stb.eq(self.baud.f.divisor.port.w_stb)
+        m.d.sync += device.divisor_stb.eq(self.baud.f.port.w_stb)
 
         return m

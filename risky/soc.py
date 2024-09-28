@@ -13,7 +13,10 @@ import risky.peripherals.uart
 
 class Info(risky.csr.Peripheral):
     class ClkFreq(amaranth_soc.csr.Register, access='r'):
-        value: amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 32)
+        def __init__(self):
+            super().__init__(
+                amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 32),
+            )
 
     def __init__(self, clk_freq_hz):
         super().__init__(depth=4)
@@ -28,7 +31,7 @@ class Info(risky.csr.Peripheral):
 
         self.elaborate_registers(platform, m)
 
-        m.d.comb += self.reg_clk_freq.f.value.r_data.eq(self.clk_freq_hz)
+        m.d.comb += self.reg_clk_freq.f.r_data.eq(self.clk_freq_hz)
 
         return m
 

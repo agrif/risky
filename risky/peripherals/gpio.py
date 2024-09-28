@@ -6,7 +6,10 @@ import risky.csr
 
 class Output(risky.csr.Peripheral):
     class Register(amaranth_soc.csr.Register, access='rw'):
-        value: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 32)
+        def __init__(self):
+            super().__init__(
+                amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 32),
+            )
 
     def __init__(self, depth = 1):
         super().__init__(depth=depth * 4)
@@ -22,7 +25,7 @@ class Output(risky.csr.Peripheral):
         self.elaborate_registers(platform, m)
 
         for reg, out in zip(self.regs, self.output):
-            m.d.comb += out.eq(reg.f.value.data)
+            m.d.comb += out.eq(reg.f.data)
 
         return m
 
