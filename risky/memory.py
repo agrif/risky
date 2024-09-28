@@ -1,5 +1,6 @@
 import collections
 import contextlib
+import dataclasses
 import math
 
 import amaranth as am
@@ -123,22 +124,103 @@ class MemoryMap(MemoryComponent):
 
         return m
 
+    @dataclasses.dataclass
+    class ResourceNode:
+        path: list[str]
+        start: int
+        end: int
+        offset: int
+
+        resource: am.lib.wiring.Component = None
+        children: collections.OrderedDict = dataclasses.field(default_factory=collections.OrderedDict)
+
+        def walk(self, topdown=True):
+            children = self.children.copy()
+            if topdown:
+                yield (self, children)
+            for n in children.values():
+                yield from n.walk(topdown=topdown)
+            if not topdown:
+                yield (self, children)
+
+        @property
+        def size(self):
+            return self.end - self.start
+
+        @property
+        def name(self):
+            return self.path[-1] if self.path else None
+
+        @property
+        def c_type(self):
+            size = self.size
+            if size == 1:
+                return 'uint8_t'
+            elif size == 2:
+                return 'uint16_t'
+            elif size == 4:
+                return 'uint32_t'
+            else:
+                return None
+
+        @property
+        def memory_x_access(self):
+            if self.resource:
+                return getattr(self.resource, 'memory_x_access', None)
+
+            accesses = set(n.memory_x_access for n in self.children.values())
+            if len(accesses) == 1:
+                access, = accesses
+                return access
+            return None
+
+    def get_resource_tree(self):
+        tree = {}
+        for r in self.bus.memory_map.all_resources():
+            path = [str(p) for part in r.path for p in part]
+            leaf = tree
+            for i, part in enumerate(path[:-1]):
+                _, leaf = leaf.setdefault(part, (path[:i + 1], {}))
+            leaf[path[-1]] = (path, r)
+
+        def reify_tree(path, t):
+            if isinstance(t, dict):
+                children = []
+                start = None
+                end = None
+                for k, (subpath, subtree) in t.items():
+                    r = reify_tree(subpath, subtree)
+                    if start is None or r.start < start:
+                        start = r.start
+                    if end is None or r.end > end:
+                        end = r.end
+
+                    children.append((k, r))
+
+                # update offset
+                for _, n in children:
+                    n.offset = n.start - start
+
+                children.sort(key=lambda t: t[1].start)
+                children = collections.OrderedDict(children)
+
+                return self.ResourceNode(path=path, start=start, end=end, offset=start, children=children)
+            else:
+                return self.ResourceNode(path=path, start=t.start, end=t.end, offset=t.start, resource=t.resource)
+
+        return reify_tree([], tree)
+
     def generate_memory_x(self):
         memory_x = 'MEMORY\n{\n'
-        for submap, name, (start, end, _) in self.bus.memory_map.windows():
-            name, = name
-            component = self.components.get(name)
-            access = getattr(component, 'memory_x_access')
-            if access is None:
-                continue
-
-            length = max(r.end for r in submap.all_resources())
-            memory_x += '    {} ({}) : ORIGIN = 0x{:x}, LENGTH = {}\n'.format(
-                name.upper(),
-                access,
-                start,
-                length,
-            )
+        for n, children in self.get_resource_tree().walk():
+            if n.memory_x_access:
+                children.clear()
+                memory_x += '    {} ({}) : ORIGIN = 0x{:x}, LENGTH = {}\n'.format(
+                    '_'.join(n.path).upper(),
+                    n.memory_x_access,
+                    n.start,
+                    n.size,
+                )
         memory_x += '}\n'
         return memory_x
 
@@ -151,23 +233,22 @@ class MemoryMap(MemoryComponent):
         h += '#include <stdint.h>\n'
         h += '#endif\n\n'
 
-        for r in self.bus.memory_map.all_resources():
-            name = '_'.join('_'.join(str(p) for p in part) for part in r.path)
-            name = name.upper()
+        for n, _ in self.get_resource_tree().walk():
+            if not n.path:
+                continue
 
-            size = r.end - r.start
-            typ = None
-            if size == 1:
-                typ = 'uint8_t'
-            elif size == 2:
-                typ = 'uint16_t'
-            elif size == 4:
-                typ = 'uint32_t'
+            name = '_'.join(n.path).upper()
+            parent = '_'.join(n.path[:-1]).upper()
 
-            h += '#define {:<40} 0x{:08x}\n'.format(name + '_ADDR', r.start)
-            h += '#define {:<40} 0x{:08x}\n'.format(name + '_SIZE', size)
-            if typ:
-                h += '#define {0:<40} (*(volatile {1} *){0}_ADDR)\n'.format(name, typ)
+            leaf = '_ADDR' if n.resource else '_BASE'
+
+            if len(n.path) == 1:
+                h += '#define {:<40} 0x{:08x}\n'.format(name + leaf, n.start)
+            else:
+                h += '#define {:<40} ({}_BASE + 0x{:x})\n'.format(name + leaf, parent, n.offset)
+            h += '#define {:<40} 0x{:x}\n'.format(name + '_SIZE', n.size)
+            if n.resource and n.c_type:
+                h += '#define {0:<40} (*(volatile {2} *){0}{1})\n'.format(name, leaf, n.c_type)
             # FIXME fields
             h += '\n'
 
