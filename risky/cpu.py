@@ -13,10 +13,13 @@ class Extension:
     def prepare(self, cpu):
         pass
 
-    def elaborate(self, platform, cpu, m):
+    def elaborate_pre(self, platform, cpu, m):
         pass
 
     def execute(self, platform, cpu, m):
+        pass
+
+    def elaborate_post(self, platform, cpu, m):
         pass
 
 class State(am.lib.enum.Enum):
@@ -137,6 +140,9 @@ class Cpu(am.lib.wiring.Component):
             with m.If(self.instr.rd != Reg.ZERO):
                 m.d.sync += self.regs[self.instr.rd].eq(self.rd)
 
+        for v in self.extensions.values():
+            v.elaborate_pre(platform, self, m)
+
         # core state machine
         with m.Switch(self.state):
             with m.Case(State.FETCH_INSTR):
@@ -225,7 +231,7 @@ class Cpu(am.lib.wiring.Component):
                     m.d.sync +=  self.state.eq(State.FETCH_INSTR)
 
         for v in self.extensions.values():
-            v.elaborate(platform, self, m)
+            v.elaborate_post(platform, self, m)
 
         return m
 
@@ -644,12 +650,30 @@ class Zicsr(Extension):
         self.csr_write_en = am.Signal(1)
         self.csr_write_data = am.Signal(cpu.xlen)
 
-    def elaborate(self, platform, cpu, m):
+        self.uimm = am.Signal(cpu.xlen)
+        self.modify = am.Signal(1)
+        self.setbits = am.Signal(1)
+        self.new = am.Signal(cpu.xlen)
+
+    def elaborate_pre(self, platform, cpu, m):
         # some defaults
         m.d.comb += [
             self.csr_addr.eq(cpu.instr.imm_i.as_unsigned()),
-            self.csr_write_data.eq(cpu.rs1),
         ]
+
+        # rs1 interpreted as an immediate value, 0-extended to xlen
+        m.d.comb += self.uimm.eq(cpu.instr.rs1.as_value().as_unsigned())
+
+        # combined mini-alu for register set/reset
+        old = am.Mux(self.modify, self.csr_read_data, 0)
+        m.d.comb += self.new.eq(cpu.rs1)
+        m.d.comb += self.csr_write_data.eq(
+            am.Mux(
+                self.setbits,
+                self.new | old,
+                ~self.new & old,
+            )
+        )
 
     def valid_csr(self, platform, cpu, m, read=True, write=True):
         if read and write:
@@ -666,10 +690,6 @@ class Zicsr(Extension):
         
 
     def execute(self, platform, cpu, m):
-        # rs1 interpreted as an immediate value, 0-extended to xlen
-        uimm = am.Signal(cpu.xlen)
-        m.d.comb += uimm.eq(cpu.instr.rs1.as_value().as_unsigned())
-
         # we require the csr implementations to call self.valid_csr
         with m.If(cpu.instr.op == Op.SYSTEM):
             with m.Switch(cpu.instr.funct3.csr):
@@ -681,7 +701,9 @@ class Zicsr(Extension):
                         cpu.rd.eq(self.csr_read_data),
 
                         self.csr_write_en.eq(1),
-                        self.csr_write_data.eq(cpu.rs1),
+                        self.modify.eq(0),
+                        self.setbits.eq(1),
+                        self.new.eq(cpu.rs1),
                     ]
 
                 with m.Case(Funct3Csr.RS):
@@ -690,9 +712,11 @@ class Zicsr(Extension):
                         cpu.rd_write_en.eq(1),
                         cpu.rd.eq(self.csr_read_data),
 
-                        # no read side effects if rs1 is zero
+                        # no write side effects if rs1 is zero
                         self.csr_write_en.eq(cpu.instr.rs1 != Reg.ZERO),
-                        self.csr_write_data.eq(self.csr_read_data | cpu.rs1),
+                        self.modify.eq(1),
+                        self.setbits.eq(1),
+                        self.new.eq(cpu.rs1),
                     ]
 
                 with m.Case(Funct3Csr.RC):
@@ -701,9 +725,11 @@ class Zicsr(Extension):
                         cpu.rd_write_en.eq(1),
                         cpu.rd.eq(self.csr_read_data),
 
-                        # no read side effects if rs1 is zero
+                        # no write side effects if rs1 is zero
                         self.csr_write_en.eq(cpu.instr.rs1 != Reg.ZERO),
-                        self.csr_write_data.eq(self.csr_read_data & ~cpu.rs1),
+                        self.modify.eq(1),
+                        self.setbits.eq(0),
+                        self.new.eq(cpu.rs1),
                     ]
 
                 with m.Case(Funct3Csr.RWI):
@@ -714,7 +740,9 @@ class Zicsr(Extension):
                         cpu.rd.eq(self.csr_read_data),
 
                         self.csr_write_en.eq(1),
-                        self.csr_write_data.eq(uimm),
+                        self.modify.eq(0),
+                        self.setbits.eq(1),
+                        self.new.eq(self.uimm),
                     ]
 
                 with m.Case(Funct3Csr.RSI):
@@ -723,9 +751,11 @@ class Zicsr(Extension):
                         cpu.rd_write_en.eq(1),
                         cpu.rd.eq(self.csr_read_data),
 
-                        # no read side effects if uimm is zero
-                        self.csr_write_en.eq(uimm != 0),
-                        self.csr_write_data.eq(self.csr_read_data | uimm),
+                        # no write side effects if uimm is zero
+                        self.csr_write_en.eq(self.uimm != 0),
+                        self.modify.eq(1),
+                        self.setbits.eq(1),
+                        self.new.eq(self.uimm),
                     ]
 
                 with m.Case(Funct3Csr.RCI):
@@ -734,9 +764,11 @@ class Zicsr(Extension):
                         cpu.rd_write_en.eq(1),
                         cpu.rd.eq(self.csr_read_data),
 
-                        # no read side effects if uimm is zero
-                        self.csr_write_en.eq(uimm != 0),
-                        self.csr_write_data.eq(self.csr_read_data & ~uimm),
+                        # no write side effects if uimm is zero
+                        self.csr_write_en.eq(self.uimm != 0),
+                        self.modify.eq(1),
+                        self.setbits.eq(0),
+                        self.new.eq(self.uimm),
                     ]
 
 class Zicntr(Extension):
@@ -753,7 +785,7 @@ class Zicntr(Extension):
         self.time = self.cycle # a valid implementation of time
         self.instret = am.Signal(64)
 
-    def elaborate(self, platform, cpu, m):
+    def elaborate_pre(self, platform, cpu, m):
         # cycle is easy
         m.d.sync += self.cycle.eq(self.cycle + 1)
 
@@ -762,7 +794,6 @@ class Zicntr(Extension):
         with m.If(cpu.state == State.FETCH_INSTR):
             m.d.sync += self.instret.eq(self.instret + 1)
 
-    def execute(self, platform, cpu, m):
         # these registers are read-only
         with m.Switch(self.csr.csr_addr):
             with m.Case(0xc00):
