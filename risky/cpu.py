@@ -39,6 +39,10 @@ class Cpu(am.lib.wiring.Component):
         self.pc = am.Signal(self.xlen)
         self.instr = am.Signal(Instruction)
 
+        # re-usable pc adder
+        self.pc_plus_inc = am.Signal(self.xlen)
+        self.pc_inc = am.Signal(self.xlen)
+
         # set high by recognized instructions
         self.is_valid_instruction = am.Signal(1)
         # used by unit tests
@@ -114,6 +118,8 @@ class Cpu(am.lib.wiring.Component):
             self.bus.adr.eq(self.pc[2:]),
             self.bus.sel.eq(0b1111),
 
+            self.pc_inc.eq(4),
+
             self.rd.eq(self.alu.out),
 
             self.alu.in1.eq(self.rs1),
@@ -121,6 +127,9 @@ class Cpu(am.lib.wiring.Component):
             self.alu.op.eq(AluOp.ADD),
             self.alu.shift_amount.eq(self.instr.rs2),
         ]
+
+        # re-usable pc adder
+        m.d.comb += self.pc_plus_inc.eq(self.pc + self.pc_inc)
 
         # write to rd if enabled
         with m.If(self.rd_write_en):
@@ -162,7 +171,7 @@ class Cpu(am.lib.wiring.Component):
                 # default to advancing to next instruction,
                 # unless something else overwrites this
                 m.d.sync += [
-                    self.pc.eq(self.pc + 4),
+                    self.pc.eq(self.pc_plus_inc),
                     self.state.eq(State.FETCH_INSTR),
                 ]
 
@@ -245,8 +254,9 @@ class Cpu(am.lib.wiring.Component):
                 m.d.comb += [
                     self.rd_write_en.eq(1),
                     self.rd.eq(self.pc + 4),
+
+                    self.pc_inc.eq(self.instr.imm_j)
                 ]
-                m.d.sync += self.pc.eq(self.pc + self.instr.imm_j)
 
             with m.Case(Op.JALR):
                 with m.If(self.instr.funct3.as_value() == 000):
@@ -254,7 +264,7 @@ class Cpu(am.lib.wiring.Component):
 
                     m.d.comb += [
                         self.rd_write_en.eq(1),
-                        self.rd.eq(self.pc + 4),
+                        self.rd.eq(self.pc_plus_inc),
 
                         self.alu.in1.eq(self.rs1),
                         self.alu.in2.eq(self.instr.imm_i),
@@ -271,44 +281,42 @@ class Cpu(am.lib.wiring.Component):
                     self.alu.in2.eq(self.rs2),
                 ]
 
-                # FIXME possibly share this with other pc pluses
-                dest = self.pc + self.instr.imm_b
                 with m.Switch(self.instr.funct3.branch):
                     with m.Case(Funct3Branch.EQ):
                         self.valid_instruction(platform, m)
                         m.d.comb += self.alu.op.eq(AluOp.EQ),
                         with m.If(self.alu.out[0]):
-                            m.d.sync += self.pc.eq(dest)
+                            m.d.comb += self.pc_inc.eq(self.instr.imm_b)
 
                     with m.Case(Funct3Branch.NE):
                         self.valid_instruction(platform, m)
                         m.d.comb += self.alu.op.eq(AluOp.EQ),
                         with m.If(~self.alu.out[0]):
-                            m.d.sync += self.pc.eq(dest)
+                            m.d.comb += self.pc_inc.eq(self.instr.imm_b)
 
                     with m.Case(Funct3Branch.LT):
                         self.valid_instruction(platform, m)
                         m.d.comb += self.alu.op.eq(AluOp.LT),
                         with m.If(self.alu.out[0]):
-                            m.d.sync += self.pc.eq(dest)
+                            m.d.comb += self.pc_inc.eq(self.instr.imm_b)
 
                     with m.Case(Funct3Branch.GE):
                         self.valid_instruction(platform, m)
                         m.d.comb += self.alu.op.eq(AluOp.LT),
                         with m.If(~self.alu.out[0]):
-                            m.d.sync += self.pc.eq(dest)
+                            m.d.comb += self.pc_inc.eq(self.instr.imm_b)
 
                     with m.Case(Funct3Branch.LTU):
                         self.valid_instruction(platform, m)
                         m.d.comb += self.alu.op.eq(AluOp.LTU),
                         with m.If(self.alu.out[0]):
-                            m.d.sync += self.pc.eq(dest)
+                            m.d.comb += self.pc_inc.eq(self.instr.imm_b)
 
                     with m.Case(Funct3Branch.GEU):
                         self.valid_instruction(platform, m)
                         m.d.comb += self.alu.op.eq(AluOp.LTU),
                         with m.If(~self.alu.out[0]):
-                            m.d.sync += self.pc.eq(dest)
+                            m.d.comb += self.pc_inc.eq(self.instr.imm_b)
 
             with m.Case(Op.LOAD):
                 # all of these load from rs1 + imm_i and go to LOAD_MEM
@@ -389,10 +397,8 @@ class Cpu(am.lib.wiring.Component):
 
                 # wait here until ack
                 with m.If(~self.bus.ack):
-                    m.d.sync += [
-                        self.pc.eq(self.pc),
-                        self.state.eq(State.EXECUTE),
-                    ]
+                    m.d.comb += self.pc_inc.eq(0)
+                    m.d.sync += self.state.eq(State.EXECUTE)
 
                 with m.Switch(self.instr.funct3.mem):
                     with m.Case(Funct3Mem.BYTE):
@@ -548,7 +554,7 @@ class Cpu(am.lib.wiring.Component):
                     with m.Case(0b000000000001_00000_000_00000_1110011):
                         # stall on ebreak
                         self.valid_instruction(platform, m)
-                        m.d.sync += self.pc.eq(self.pc)
+                        m.d.comb += self.pc_inc.eq(0)
 
     def valid_instruction(self, platform, m):
         m.d.comb += self.is_valid_instruction.eq(1)
