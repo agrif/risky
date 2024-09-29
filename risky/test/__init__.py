@@ -123,13 +123,15 @@ class ProgramTest(Simulated):
             addr = addr_or_symbol
 
         for _ in range(max_ticks):
+            prev_state = ctx.get(self.dut.cpu.state)
+
+            # always tick at least once
+            await ctx.tick()
+
             pc = ctx.get(self.dut.cpu.pc)
             state = ctx.get(self.dut.cpu.state)
 
-            # always tick at least once, even if we hit a checkpoint
-            await ctx.tick()
-
-            if pc == addr and state == risky.cpu.State.FETCH_INSTR.value:
+            if pc == addr and state == risky.cpu.State.FETCH_INSTR.value and state != prev_state:
                 return
 
         if isinstance(addr_or_symbol, str):
