@@ -44,7 +44,8 @@ def cli():
 
 @cli.command()
 @click.option('-c', '--cpu-name')
-def test(cpu_name):
+@click.option('-i', '--instruction-name')
+def test(cpu_name, instruction_name):
     def iter_configs():
         yield ('old', risky.old_cpu.Cpu())
 
@@ -66,7 +67,7 @@ def test(cpu_name):
 
         print()
         print(name)
-        tests = list(risky.test.ProgramTest.iter_tests(cpu))
+        tests = list(risky.test.ProgramTest.iter_tests(cpu, filter=lambda t: instruction_name is None or t.name == instruction_name))
         with tqdm.tqdm(total=len(tests), unit='t') as pbar:
             results = [executor.submit(lambda t: t.run(), test) for test in tests]
             for test, result in zip(tests, results):

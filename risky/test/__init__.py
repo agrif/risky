@@ -49,10 +49,12 @@ class ProgramTest(Simulated):
         return self.__class__.__name__
 
     @classmethod
-    def iter_tests(cls, cpu):
+    def iter_tests(cls, cpu, filter=lambda t: True):
         for subclass in cls.__subclasses__():
             if subclass.PROGRAM:
-                yield subclass(cpu)
+                t = subclass(cpu)
+                if filter(t):
+                    yield t
 
     def construct(self):
         dut = risky.soc.Soc(self.clk_freq, cpu=self.cpu)
