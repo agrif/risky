@@ -13,6 +13,7 @@ import traceback
 import risky.cpu
 import risky.demo
 import risky.old_cpu
+import risky.ormux_cpu
 import risky.soc
 import risky.test
 import risky.test.rv32i
@@ -47,7 +48,8 @@ def cli():
 @click.option('-i', '--instruction-name')
 def test(cpu_name, instruction_name):
     def iter_configs():
-        yield ('old', risky.old_cpu.Cpu())
+        cpu = risky.old_cpu.Cpu()
+        yield ('old-' + cpu.march, cpu)
 
         configs = [
             [],
@@ -56,7 +58,16 @@ def test(cpu_name, instruction_name):
 
         for config in configs:
             cpu = risky.cpu.Cpu(extensions=[e() for e in config])
-            yield (cpu.march, cpu)
+            yield ('new-' + cpu.march, cpu)
+
+        configs = [
+            [],
+            [risky.ormux_cpu.Zicsr, risky.ormux_cpu.Zicntr],
+        ]
+
+        for config in configs:
+            cpu = risky.ormux_cpu.Cpu(extensions=config)
+            yield('ormux-' + cpu.march, cpu)
 
     total = 0
     fails = []

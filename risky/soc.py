@@ -8,6 +8,8 @@ import risky.compiler
 import risky.cpu
 import risky.memory
 import risky.csr
+import risky.old_cpu
+import risky.ormux_cpu
 import risky.peripherals.gpio
 import risky.peripherals.uart
 
@@ -42,12 +44,15 @@ class Soc(am.lib.wiring.Component):
         super().__init__()
 
         if cpu is None:
-            #import risky.old_cpu
             #cpu = risky.old_cpu.Cpu()
-            cpu = risky.cpu.Cpu([
-                risky.cpu.Zicsr(),
-                risky.cpu.Zicntr(),
+            cpu = risky.ormux_cpu.Cpu([
+                risky.ormux_cpu.Zicsr,
+                risky.ormux_cpu.Zicntr,
             ])
+            #cpu = risky.cpu.Cpu([
+            #    risky.cpu.Zicsr(),
+            #    risky.cpu.Zicntr(),
+            #])
 
         self.cpu = cpu
         self.memory = risky.memory.MemoryMap(alignment=28)
