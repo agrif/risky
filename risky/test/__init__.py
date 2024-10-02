@@ -64,7 +64,7 @@ class ProgramTest(Simulated):
             c.add_source('s', self.HEADER + '\n' + self.PROGRAM)
             self.elf = c.link()
 
-        dut.set_rom(self.elf.flat_words)
+        dut.set_rom(self.elf.flat)
         self.symbols = self.elf.symbols()
 
         self._setup_renames()

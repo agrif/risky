@@ -40,7 +40,7 @@ class Info(risky.csr.Peripheral):
 class Soc(am.lib.wiring.Component):
     tx: am.lib.wiring.Out(1)
 
-    def __init__(self, clk_freq, cpu=None, memory_contents=[]):
+    def __init__(self, clk_freq, cpu=None, memory_contents=b''):
         super().__init__()
 
         if cpu is None:
@@ -69,7 +69,7 @@ class Soc(am.lib.wiring.Component):
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
 
     def set_rom(self, contents):
-        self.rom.memory.data.init = contents
+        self.rom.set_data(contents)
 
     def elaborate(self, platform):
         m = am.Module()
@@ -110,7 +110,7 @@ class Soc(am.lib.wiring.Component):
         #elf.dump_flat('debug.bin')
         #elf.dump_disassemble('debug.dump')
 
-        soc.set_rom(elf.flat_words)
+        soc.set_rom(elf.flat)
 
         return soc
 

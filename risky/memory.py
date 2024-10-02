@@ -2,12 +2,32 @@ import collections
 import contextlib
 import dataclasses
 import math
+import struct
 
 import amaranth as am
 import amaranth.lib.memory
 import amaranth.lib.enum
 
 import amaranth_soc.wishbone
+
+def unpack_data(width, data):
+    try:
+        fmt = {
+            8: 'B',
+            16: 'H',
+            32: 'I',
+            64: 'Q',
+        }[width]
+    except KeyError:
+        raise ValueError('unsupported data width: {}'.format(width))
+
+    width_bytes = width // 8
+
+    fmt = '<' + fmt
+    while len(data) % width_bytes != 0:
+        data += b'\0'
+
+    return list(x[0] for x in struct.iter_unpack(fmt, data))
 
 class MemoryBus(amaranth_soc.wishbone.Signature):
     def __init__(self, addr_width=30):
@@ -90,18 +110,22 @@ class MemoryMap(MemoryComponent):
         self.components[name] = component
         return component
 
-    def add_rom(self, name, depth, addr=None, init=[]):
+    def add_rom(self, name, depth, addr=None, init=b''):
         parts = self.bus.data_width // self.bus.granularity
         word_depth = (depth + parts - 1) // parts
 
-        rom = Rom(depth=word_depth, init=init)
+        init_words = unpack_data(self.bus.data_width, init)
+
+        rom = Rom(depth=word_depth, init=init_words)
         return self.add(name, rom, addr=addr)
 
-    def add_ram(self, name, depth, addr=None, init=[]):
+    def add_ram(self, name, depth, addr=None, init=b''):
         parts = self.bus.data_width // self.bus.granularity
         word_depth = (depth + parts - 1) // parts
 
-        ram = Ram(depth=word_depth, init=init)
+        init_words = unpack_data(self.bus.data_width, init)
+
+        ram = Ram(depth=word_depth, init=init_words)
         return self.add(name, ram, addr=addr)
 
     @contextlib.contextmanager
@@ -286,6 +310,10 @@ class Ram(MemoryComponent):
     def __getitem__(self, addr):
         return self.memory.data[addr >> (self.bus.memory_map.addr_width - self.bus.addr_width)]
 
+    def set_data(self, data):
+        data_words = unpack_data(self.bus.data_width, data)
+        self.memory.data.init = data_words
+
 class Rom(MemoryComponent):
     memory_x_access = 'rx'
 
@@ -320,3 +348,7 @@ class Rom(MemoryComponent):
 
     def __getitem__(self, addr):
         return self.memory.data[addr >> (self.bus.memory_map.addr_width - self.bus.addr_width)]
+
+    def set_data(self, data):
+        data_words = unpack_data(self.bus.data_width, data)
+        self.memory.data.init = data_words
