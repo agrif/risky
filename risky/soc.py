@@ -71,14 +71,28 @@ class Soc(am.lib.wiring.Component):
     def set_rom(self, contents):
         self.rom.memory.data.init = contents
 
+    def elaborate(self, platform):
+        m = am.Module()
+
+        m.submodules.cpu = self.cpu
+        m.submodules.memory = self.memory
+
+        am.lib.wiring.connect(m, self.cpu.bus, self.memory.bus)
+
+        m.d.comb += [
+            self.tx.eq(self.uart.tx),
+        ]
+
+        return m
+
     @contextlib.contextmanager
     def compiler(self, **kwargs):
         our_kwargs = dict(march=self.cpu.march)
         our_kwargs.update(kwargs)
         compiler = risky.compiler.Compiler(**our_kwargs)
         with compiler as c:
-            c.include_source('memory.x', self.memory.generate_memory_x())
-            c.include_source('risky.h', self.memory.generate_header())
+            c.include_source('memory.x', self.generate_memory_x())
+            c.include_source('risky.h', self.generate_header())
 
             yield c
 
@@ -100,16 +114,68 @@ class Soc(am.lib.wiring.Component):
 
         return soc
 
-    def elaborate(self, platform):
-        m = am.Module()
+    def generate_memory_x(self):
+        memory_x = 'MEMORY\n{\n'
+        for n, children in self.memory.get_resource_tree().walk():
+            if n.memory_x_access:
+                children.clear()
+                memory_x += '    {} ({}) : ORIGIN = 0x{:x}, LENGTH = {}\n'.format(
+                    '_'.join(n.path).upper(),
+                    n.memory_x_access,
+                    n.start,
+                    n.size,
+                )
+        memory_x += '}\n'
+        return memory_x
 
-        m.submodules.cpu = self.cpu
-        m.submodules.memory = self.memory
+    def generate_header(self):
+        h = ''
+        h += '#ifndef __RISKY_H_INCLUDED\n'
+        h += '#define __RISKY_H_INCLUDED\n\n'
 
-        am.lib.wiring.connect(m, self.cpu.bus, self.memory.bus)
+        h += '#if !defined(__ASSEMBLER__)\n'
+        h += '#include <stdint.h>\n'
+        h += '#endif\n\n'
 
-        m.d.comb += [
-            self.tx.eq(self.uart.tx),
-        ]
+        for n, _ in self.memory.get_resource_tree().walk():
+            if not n.path:
+                continue
 
-        return m
+            name = '_'.join(n.path).upper()
+            parent = '_'.join(n.path[:-1]).upper()
+
+            leaf = '_ADDR' if n.resource else '_BASE'
+
+            def define(name, fmt, *args, **kwargs):
+                nonlocal h
+                h += '#define {:<40} '.format(name) + fmt.format(*args, **kwargs) + '\n'
+
+            if len(n.path) == 1:
+                define(name + leaf, '0x{:08x}', n.start)
+            else:
+                define(name + leaf, '({}_BASE + 0x{:x})', parent, n.offset)
+
+            define(name + '_SIZE', '0x{:x}', n.size)
+            if n.resource and n.c_type:
+                define(name, '(*(volatile {} *){}{})', n.c_type, name, leaf)
+                if isinstance(n.resource, amaranth_soc.csr.Register):
+                    field_start = 0
+                    for fn, fv in n.resource:
+                        if not fn:
+                            # whole register is field
+                            break
+
+                        fieldname = name + '_' + '_'.join(fn).upper()
+                        field_size = fv.port.shape.width
+                        field_end = field_start + field_size
+
+                        h += '\n'
+                        define(fieldname + '_SHIFT', '{}', field_start)
+                        define(fieldname + '_WIDTH', '{}', field_size)
+                        define(fieldname + '_MASK', '(((1 << {0}_WIDTH) - 1) << {0}_SHIFT)', fieldname)
+
+                        field_start = field_end
+            h += '\n'
+
+        h += '#endif /* __RISKY_H_INCLUDED */\n'
+        return h

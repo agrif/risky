@@ -124,7 +124,19 @@ def simulate(output, cycles, sources):
     plain.run(output=output)
 
 @cli.command()
-@click.argument('output', type=click.File('w'), default='-')
+@click.option('-o', '--output', type=click.File('w'), default='-')
+def memory_x(output):
+    soc = risky.soc.Soc(1_000_000)
+    output.write(soc.generate_memory_x())
+
+@cli.command()
+@click.option('-o', '--output', type=click.File('w'), default='-')
+def header(output):
+    soc = risky.soc.Soc(1_000_000)
+    output.write(soc.generate_header())
+
+@cli.command()
+@click.option('-o', '--output', type=click.File('w'), default='-')
 def verilog(output):
     top = risky.ormux_cpu.Cpu()
     output.write(am.back.verilog.convert(top))
