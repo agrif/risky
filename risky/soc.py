@@ -97,7 +97,7 @@ class Soc(am.lib.wiring.Component):
             yield c
 
     @classmethod
-    def with_source_files(cls, clk_freq, *fnames):
+    def with_sources(cls, clk_freq, *fnames):
         soc = cls(clk_freq)
 
         with soc.compiler() as c:
@@ -113,6 +113,61 @@ class Soc(am.lib.wiring.Component):
         soc.set_rom(elf.flat)
 
         return soc
+
+    @classmethod
+    def with_elf(cls, clk_freq, elfname):
+        soc = cls(clk_freq)
+
+        elf = risky.compiler.ElfData.from_file(elfname)
+        soc.set_rom(elf.flat)
+
+        return soc
+
+    @classmethod
+    def with_binaries(cls, clk_freq, *binnames):
+        soc = cls(clk_freq)
+
+        data = b''
+        for binname in binnames:
+            with open(binname, 'rb') as f:
+                data += f.read()
+
+        soc.set_rom(data)
+        return soc
+
+    @classmethod
+    def with_autodetect(cls, clk_freq, *fnames):
+        # try elf first, it's the most easy to id
+        elf = True
+        try:
+            fname, *_ = fnames
+            risky.compiler.ElfData.from_file(fname)
+        except Exception:
+            elf = False
+
+        if elf:
+            if len(fnames) > 1:
+                raise ValueError('can only load at most one ELF file')
+            print('loading ELF:', *fnames)
+            return cls.with_elf(clk_freq, *fnames)
+
+        # are the files all valid utf-8?
+        # not the best test, but it'll do
+        sources = True
+        try:
+            for fname in fnames:
+                with open(fname, 'r', encoding='utf-8') as f:
+                    f.read()
+        except Exception as e:
+            sources = False
+
+        if sources:
+            print('loading sources:', *fnames)
+            return cls.with_sources(clk_freq, *fnames)
+
+        # just load them raw
+        print('loading binaries:', *fnames)
+        return cls.with_binaries(clk_freq, *fnames)
 
     def generate_memory_x(self):
         memory_x = 'MEMORY\n{\n'

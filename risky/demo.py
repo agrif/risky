@@ -16,7 +16,7 @@ class Demo(am.Elaboratable):
         #m.domains += clockworks.domain
         #freq = clockworks.out_freq
 
-        soc = risky.soc.Soc.with_source_files(freq, *self.sources)
+        soc = risky.soc.Soc.with_autodetect(freq, *self.sources)
         #soc = am.DomainRenamer('slow')(soc)
         m.submodules.soc = soc
 

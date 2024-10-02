@@ -9,7 +9,7 @@ class Plain(risky.test.Simulated):
         super().__init__()
 
     def construct(self):
-        dut = risky.soc.Soc.with_source_files(self.clk_freq, *self.sources)
+        dut = risky.soc.Soc.with_autodetect(self.clk_freq, *self.sources)
         return dut
 
     async def testbench(self, ctx):

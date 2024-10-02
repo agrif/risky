@@ -98,13 +98,18 @@ class Compiler:
             '-Wl,-m,elf32lriscv', # FIXME why?
         ], check=True)
 
-        with open(elfpath, 'rb') as f:
-            return ElfData(f.read())
+        return ElfData.from_file(elfpath)
 
 class ElfData:
     def __init__(self, data):
         self.data = data
+        self.elf = elftools.elf.elffile.ELFFile(io.BytesIO(self.data))
         self._flat = None
+
+    @classmethod
+    def from_file(cls, path):
+        with open(path, 'rb') as f:
+            return cls(f.read())
 
     def dump(self, fname):
         with open(fname, 'wb') as f:
@@ -128,9 +133,8 @@ class ElfData:
             return p.stdout
 
     def symbols(self):
-        elf = elftools.elf.elffile.ELFFile(io.BytesIO(self.data))
         symbols = {}
-        for sec in elf.iter_sections():
+        for sec in self.elf.iter_sections():
             if not isinstance(sec, elftools.elf.sections.SymbolTableSection):
                 continue
             for sym in sec.iter_symbols():
