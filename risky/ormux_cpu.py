@@ -833,6 +833,10 @@ class Zicsr(Extension):
                 # FIXME writes to read-only registers should be invalid
                 m.d.comb += self.ib.valid.eq(self.csr_bus.valid)
 
+                with m.If(~self.csr_bus.valid & self.ib.execute):
+                    info = am.Format('!! bad csr: funct3 = 0b{:03b}, addr = 0x{:03x}', self.ib.instr.funct3.as_value(), self.csr_bus.adr)
+                    m.d.sync += am.Print(info)
+
         with m.If(self.ib.valid & self.ib.execute):
             with m.Switch(self.ib.instr.funct3.csr):
                 with m.Case(Funct3Csr.RW):
