@@ -126,7 +126,7 @@ def simulate(output, cycles, sources):
 @cli.command()
 @click.argument('output', type=click.File('w'), default='-')
 def verilog(output):
-    top = risky.cpu.Cpu()
+    top = risky.ormux_cpu.Cpu()
     output.write(am.back.verilog.convert(top))
 
 BOARDS = {
