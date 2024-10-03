@@ -707,24 +707,25 @@ class Rv32i(Extension):
             with m.If(~self.mem_bus.ack):
                 m.d.comb += self.ib.wait.eq(1)
 
+            # this is fiddled with in the cases later
+            m.d.comb += self.mem_bus.dat_w.eq(am.Cat(src[:16], src[:16]))
+
             with m.Switch(self.ib.instr.funct3.mem):
                 with m.Case(Funct3Mem.BYTE):
-                    byte = am.Cat(*[src[:8] for _ in range(4)])
                     m.d.comb += [
-                        self.mem_bus.dat_w.eq(byte),
+                        self.mem_bus.dat_w[8:16].eq(src[:8]),
+                        self.mem_bus.dat_w[24:32].eq(src[:8]),
                         self.mem_bus.sel.eq(1 << dest[:2]),
                     ]
 
                 with m.Case(Funct3Mem.HALF):
-                    half = am.Cat(*(src[:16] for _ in range(2)))
                     m.d.comb += [
-                        self.mem_bus.dat_w.eq(half),
                         self.mem_bus.sel.eq(0b11 << (dest[:2] & 0b10)),
                     ]
 
                 with m.Default():
                     m.d.comb += [
-                        self.mem_bus.dat_w.eq(src),
+                        self.mem_bus.dat_w[16:32].eq(src[16:32]),
                         self.mem_bus.sel.eq(0b1111),
                     ]
 
