@@ -13,6 +13,8 @@ class State(am.lib.enum.Enum):
     EXECUTE = 1
 
 class AluBus(am.lib.wiring.Signature):
+    name = 'alu'
+
     def __init__(self, xlen):
         super().__init__({
             # alu -> instruction
@@ -30,6 +32,8 @@ class AluBus(am.lib.wiring.Signature):
         return self.members == other.members
 
 class CsrBus(am.lib.wiring.Signature):
+    name = 'csr'
+
     def __init__(self, xlen):
         super().__init__({
             # cpu -> csr
@@ -47,6 +51,8 @@ class CsrBus(am.lib.wiring.Signature):
         return self.members == other.members
 
 class InstructionBus(am.lib.wiring.Signature):
+    name = 'instr'
+
     def __init__(self, xlen):
         super().__init__(dict(
             # cpu -> instruction
@@ -80,13 +86,15 @@ class InstructionBus(am.lib.wiring.Signature):
     def __eq__(self, other):
         return self.members == other.members
 
-class InstructionComponent(am.lib.wiring.Component):
+class BusConnectedComponent(am.lib.wiring.Component):
+    busses = [InstructionBus]
+
     def __init__(self, xlen, signature={}):
         self.xlen = xlen
 
-        our_signature = {
-            'instr_bus': am.lib.wiring.In(InstructionBus(xlen)),
-        }
+        our_signature = {}
+        for bus in self.busses:
+            our_signature[bus.name + '_bus'] = am.lib.wiring.In(bus(xlen))
         our_signature.update(signature)
 
         super().__init__(our_signature)
@@ -95,6 +103,7 @@ class InstructionComponent(am.lib.wiring.Component):
     def ib(self):
         return self.instr_bus
 
+class InstructionComponent(BusConnectedComponent):
     def elaborate(self, platform):
         m = am.Module()
 
@@ -110,31 +119,49 @@ class InstructionComponent(am.lib.wiring.Component):
     def execute(self, platform, m):
         raise NotImplementedError
 
-class OneHotMux(am.lib.wiring.Component):
+class OneHotMux(am.lib.wiring.Elaboratable):
     def __init__(self, signature):
-        super().__init__({
-            'bus': am.lib.wiring.In(signature),
-        })
+        super().__init__()
 
+        self.bus_signature = signature
+        self.bus = am.lib.wiring.flipped(signature.create())
+        self.controller_bus = None
         self.subbusses = []
 
-    def _find_matching_busses(self, component):
+    def _find_matching_busses(self, component, signature):
         candidates = []
-        for name, kind in component.signature.members.items():
-            if kind.signature == self.bus.signature:
-                candidates.append(getattr(component, name))
+        if component.signature == signature:
+            candidates.append(component)
+        else:
+            for name, kind in component.signature.members.items():
+                if kind.is_signature and kind.signature == signature:
+                    candidates.append(getattr(component, name))
 
         return candidates
 
     def add(self, component):
-        candidates = self._find_matching_busses(component)
-        if len(candidates) == 0:
-            raise ValueError('no matching busses found')
-        elif len(candidates) > 1:
+        added = False
+
+        candidates = self._find_matching_busses(component, self.bus.signature)
+        if len(candidates) > 1:
             raise ValueError('component has ambiguous matching busses')
 
-        bus, = candidates
-        self.add_bus(bus)
+        if len(candidates) > 0:
+            bus, = candidates
+            self.add_bus(bus)
+            added = True
+
+        candidates = self._find_matching_busses(component, self.bus_signature)
+        if len(candidates) > 1:
+            raise ValueError('component has ambiguous matching controllers')
+
+        if len(candidates) > 0:
+            bus, = candidates
+            self.add_controller_bus(bus)
+            added = True
+
+        if not added:
+            raise ValueError('no matching busses found')
 
         return component
 
@@ -145,11 +172,31 @@ class OneHotMux(am.lib.wiring.Component):
         self.subbusses.append(bus)
         return bus
 
+    def add_controller_bus(self, controller_bus):
+        if controller_bus.signature != self.bus_signature:
+            raise ValueError('controller bus signature does not match')
+
+        if self.controller_bus is not None:
+            raise RuntimeError('one hot mux cannot have more than one controller')
+
+        self.controller_bus = controller_bus
+        return controller_bus
+
     def add_from(self, components):
         for component in components:
-            if len(self._find_matching_busses(component)) > 0:
+            a = self._find_matching_busses(component, self.bus.signature)
+            b = self._find_matching_busses(component, self.bus_signature)
+            if len(a) + len(b) > 0:
                 self.add(component)
         return components
+
+    @classmethod
+    def forward(cls, output_bus, components):
+        controller_bus = am.lib.wiring.flipped(output_bus)
+        mux = cls(controller_bus.signature)
+        mux.add_controller_bus(controller_bus)
+        mux.add_from(components)
+        return mux
 
     def elaborate(self, platform):
         m = am.Module()
@@ -185,25 +232,22 @@ class OneHotMux(am.lib.wiring.Component):
                     ),
                 )
 
+        if self.controller_bus is None:
+            raise RuntimeError('one hot mux needs a controller')
+        am.lib.wiring.connect(m, self.controller_bus, self.bus)
+
         return m
 
-class Extension(am.lib.wiring.Component):
+class Extension(BusConnectedComponent):
     name = None
     march = None
 
     def __init__(self, cpu, signature={}):
-        self.xlen = cpu.xlen
+        super().__init__(cpu.xlen, signature=signature)
 
-        our_signature = {
-            'instr_bus': am.lib.wiring.In(InstructionBus(cpu.xlen)),
-        }
-        our_signature.update(signature)
-
-        super().__init__(our_signature)
-
-    @property
-    def ib(self):
-        return self.instr_bus
+    def forward_busses(self, platform, m, components):
+        for bus in self.busses:
+            m.submodules[bus.name + '_mux'] = OneHotMux.forward(getattr(self, bus.name + '_bus'), components)
 
 class Cpu(am.lib.wiring.Component):
     xlen = 32
@@ -292,31 +336,30 @@ class Cpu(am.lib.wiring.Component):
         # add our extensions and busses
         # the idea is to accumulate busses from the submodules, then
         # wire them up (where up to one submodule can be host)
-        # FIXME this is not implemented, like, at all
-        submodules = [self.base] + list(self.extensions.values())
 
-        for module in submodules:
-            name = module.name
-            m.submodules[name] = module
+        m.submodules[self.base.name] = self.base
+        m.submodules.alu = self.alu
+        for ext in self.extensions.values():
+            m.submodules[ext.name] = ext
 
-        busses = [InstructionBus(self.xlen)]
-        if 'zicsr' in self.extensions:
-            busses.append(CsrBus(self.xlen))
+        bus_components = [self.base, self.alu] + list(self.extensions.values())
+
+        busses = {InstructionBus}
+        for ext in self.extensions.values():
+            for bus in ext.busses:
+                busses.add(bus)
+
         for bus in busses:
-            name = bus.__class__.__name__ + '_mux'
+            bus = bus(self.xlen)
+            name = bus.name + '_mux'
             m.submodules[name] = mux = OneHotMux(bus)
-            mux.add_from(submodules)
+            mux.add_from(bus_components)
 
             # special bus
             if isinstance(bus, InstructionBus):
-                am.lib.wiring.connect(m, self.instr_bus, mux.bus)
+                mux.add_controller_bus(self.instr_bus)
 
-            # also special bus for now
-            if isinstance(bus, CsrBus):
-                am.lib.wiring.connect(m, self.extensions['zicsr'].csr_bus, mux.bus)
-
-        # add our alu (probably should be a bus connected like above)
-        m.submodules.alu = self.alu
+        # alu (probably should be a bus connected like above)
         am.lib.wiring.connect(m, self.alu, am.lib.wiring.flipped(self.ib.alu))
 
         # connect instruction bus
@@ -416,11 +459,9 @@ class Rv32i(Extension):
         ]
 
         for instr in instructions:
-            m.submodules[instr.__class__.__name__] = instr
+            m.submodules[instr.__class__.__name__.lower()] = instr
 
-        m.submodules.instr_mux = instr_mux = OneHotMux(InstructionBus(self.xlen))
-        instr_mux.add_from(instructions)
-        am.lib.wiring.connect(m, am.lib.wiring.flipped(self.ib), instr_mux.bus)
+        self.forward_busses(platform, m, instructions)
 
         return m
 
@@ -926,10 +967,10 @@ class Zicntr(Extension):
     #march = 'zicntr'
     name = 'zicntr'
 
+    busses = [InstructionBus, CsrBus]
+
     def __init__(self, cpu):
-        super().__init__(cpu, signature={
-            'csr_bus': am.lib.wiring.In(CsrBus(cpu.xlen)),
-        })
+        super().__init__(cpu)
 
         self.cycle = am.Signal(64)
         self.time = self.cycle # a valid implementation of time
