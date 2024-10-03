@@ -34,7 +34,6 @@ class AluBus(am.lib.wiring.Signature):
             'in2': am.lib.wiring.In(xlen),
             'op': am.lib.wiring.In(Funct3Alu),
             'alt': am.lib.wiring.In(1),
-            'shift_amount': am.lib.wiring.In(range(xlen)),
         })
 
     def __eq__(self, other):
@@ -753,14 +752,16 @@ class Rv32i(Extension):
                 self.alu_bus.in1.eq(self.ib.rs1),
                 self.alu_bus.in2.eq(self.ib.instr.imm_i),
                 self.alu_bus.op.eq(self.ib.instr.funct3.alu),
-                self.alu_bus.shift_amount.eq(self.ib.instr.rs2),
 
                 self.ib.rd_data.eq(self.alu_bus.out),
                 self.ib.rd_stb.eq(1),
             ]
 
             with m.If(self.ib.instr.funct3.alu.matches(Funct3Alu.SHIFT_L, Funct3Alu.SHIFT_R)):
-                m.d.comb += self.alu_bus.alt.eq(self.ib.instr.funct7.alu != Funct7Alu.NORMAL)
+                m.d.comb += [
+                    self.alu_bus.alt.eq(~self.ib.instr.funct7.alu.matches(Funct7Alu.NORMAL)),
+                    self.alu_bus.in2.eq(self.ib.instr.rs2),
+                ]
 
     class Op(InstructionComponent):
         busses = [InstrBus, AluBus]
@@ -783,8 +784,7 @@ class Rv32i(Extension):
                 self.alu_bus.in1.eq(self.ib.rs1),
                 self.alu_bus.in2.eq(self.ib.rs2),
                 self.alu_bus.op.eq(self.ib.instr.funct3.alu),
-                self.alu_bus.alt.eq(self.ib.instr.funct7.alu != Funct7Alu.NORMAL),
-                self.alu_bus.shift_amount.eq(self.ib.rs2),
+                self.alu_bus.alt.eq(~self.ib.instr.funct7.alu.matches(Funct7Alu.NORMAL)),
 
                 self.ib.rd_data.eq(self.alu_bus.out),
                 self.ib.rd_stb.eq(1),
@@ -824,7 +824,7 @@ class Alu(am.lib.wiring.Component):
 
         # shared shifter for ll / rl / ra
         shift_in = am.Mux(self.op.matches(Funct3Alu.SHIFT_L), self.in1[::-1], self.in1)
-        rightshift = am.Cat(shift_in, self.alt & shift_in[-1]).as_signed() >> self.shift_amount
+        rightshift = am.Cat(shift_in, self.alt & shift_in[-1]).as_signed() >> (self.in2 & (self.xlen - 1))
         leftshift = rightshift[:-1][::-1]
 
         # ok, now push the right one to out
