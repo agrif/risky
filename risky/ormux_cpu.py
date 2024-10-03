@@ -1,4 +1,6 @@
 import collections
+import functools
+import operator
 
 import amaranth as am
 import amaranth.lib.enum
@@ -176,12 +178,12 @@ class OneHotMux(am.lib.wiring.Component):
                 # components on the bus promise to only assert anything
                 # if valid is also asserted, and valid is *unique* per instr
 
-                # unfortunately, the reduction-or from .any()
-                # is occasionaly optimized better, so we do a dance
-                for i, bit in enumerate(raw_sig(self.bus, path)):
-                    m.d.comb += bit.eq(am.Cat(
-                        *(raw_sig(bus, path)[i] for bus in self.subbusses)
-                    ).any())
+                m.d.comb += raw_sig(self.bus, path).eq(
+                    functools.reduce(
+                        operator.or_,
+                        (raw_sig(bus, path) for bus in self.subbusses),
+                    ),
+                )
 
         return m
 
