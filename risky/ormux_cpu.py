@@ -286,8 +286,8 @@ class Cpu(am.lib.wiring.Component):
         # instruction bus
         self.instr_bus = InstrBus(self.xlen).create()
 
-        # instruction mem bus
-        self.mem_bus = MemBus(self.xlen).create()
+        # internal mem bus
+        self.mem_bus = MemBus(self.xlen).flip().create()
 
         # base instructions
         self.base = Rv32i(self)
@@ -370,7 +370,8 @@ class Cpu(am.lib.wiring.Component):
                 mux.add_controller_bus(self.instr_bus)
 
             if isinstance(bus, MemBus):
-                mux.add_controller_bus(self.mem_bus)
+                mux.add_bus(self.mem_bus)
+                mux.add_controller_bus(am.lib.wiring.flipped(self.bus))
 
         # connect instruction bus
         m.d.comb += [
@@ -385,23 +386,20 @@ class Cpu(am.lib.wiring.Component):
             self.ib.pc_next.eq(self.pc + 4),
             self.ib.pc_jump.eq(am.Mux(self.ib.j_rel, self.pc + self.ib.j_addr, self.ib.j_addr)),
             self.ib.stalled.eq(self.ib.wait),
-
-            self.mem_bus.dat_r.eq(self.bus.dat_r),
-            self.mem_bus.ack.eq(self.bus.ack),
         ]
 
         # core state machine
         with m.Switch(self.state):
             with m.Case(State.FETCH):
                 m.d.comb += [
-                    self.bus.adr.eq(self.pc[2:]),
-                    self.bus.sel.eq(0b1111),
-                    self.bus.cyc.eq(1),
-                    self.bus.stb.eq(1),
+                    self.mem_bus.adr.eq(self.pc[2:]),
+                    self.mem_bus.sel.eq(0b1111),
+                    self.mem_bus.cyc.eq(1),
+                    self.mem_bus.stb.eq(1),
                 ]
 
                 with m.If(self.bus.ack):
-                    instr = Instruction(self.bus.dat_r)
+                    instr = Instruction(self.mem_bus.dat_r)
                     m.d.sync += [
                         # read register values
                         self.rs1.eq(self.regs[instr.rs1]),
@@ -413,16 +411,6 @@ class Cpu(am.lib.wiring.Component):
                     ]
 
             with m.Case(State.EXECUTE):
-                # forward memory access
-                m.d.comb += [
-                    self.bus.adr.eq(self.mem_bus.adr),
-                    self.bus.dat_w.eq(self.mem_bus.dat_w),
-                    self.bus.sel.eq(self.mem_bus.sel),
-                    self.bus.cyc.eq(self.mem_bus.cyc),
-                    self.bus.stb.eq(self.mem_bus.stb),
-                    self.bus.we.eq(self.mem_bus.we),
-                ]
-
                 # go to next instruction
                 with m.If(~self.ib.wait):
                     m.d.sync += self.state.eq(State.FETCH)
