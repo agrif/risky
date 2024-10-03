@@ -12,6 +12,15 @@ class State(am.lib.enum.Enum):
     FETCH = 0
     EXECUTE = 1
 
+class MemBus(am.lib.wiring.Signature):
+    name = 'mem'
+
+    def __init__(self, xlen):
+        super().__init__(risky.memory.MemoryBus().flip().members)
+
+    def __eq__(self, other):
+        return self.members == other.members
+
 class AluBus(am.lib.wiring.Signature):
     name = 'alu'
 
@@ -50,7 +59,7 @@ class CsrBus(am.lib.wiring.Signature):
     def __eq__(self, other):
         return self.members == other.members
 
-class InstructionBus(am.lib.wiring.Signature):
+class InstrBus(am.lib.wiring.Signature):
     name = 'instr'
 
     def __init__(self, xlen):
@@ -77,17 +86,13 @@ class InstructionBus(am.lib.wiring.Signature):
             j_en = am.lib.wiring.In(1),
 
             wait = am.lib.wiring.In(1),
-
-            # sub-busses
-            alu = am.lib.wiring.Out(AluBus(xlen)),
-            mem = am.lib.wiring.In(risky.memory.MemoryBus()),
         ))
 
     def __eq__(self, other):
         return self.members == other.members
 
 class BusConnectedComponent(am.lib.wiring.Component):
-    busses = [InstructionBus]
+    busses = [InstrBus]
 
     def __init__(self, xlen, signature={}):
         self.xlen = xlen
@@ -144,7 +149,7 @@ class OneHotMux(am.lib.wiring.Elaboratable):
 
         candidates = self._find_matching_busses(component, self.bus.signature)
         if len(candidates) > 1:
-            raise ValueError('component has ambiguous matching busses')
+            raise ValueError('component has ambiguous matching busses for {}'.format(self.bus.signature))
 
         if len(candidates) > 0:
             bus, = candidates
@@ -153,7 +158,7 @@ class OneHotMux(am.lib.wiring.Elaboratable):
 
         candidates = self._find_matching_busses(component, self.bus_signature)
         if len(candidates) > 1:
-            raise ValueError('component has ambiguous matching controllers')
+            raise ValueError('component has ambiguous matching controllers for {}'.format(self.bus_signature))
 
         if len(candidates) > 0:
             bus, = candidates
@@ -161,23 +166,23 @@ class OneHotMux(am.lib.wiring.Elaboratable):
             added = True
 
         if not added:
-            raise ValueError('no matching busses found')
+            raise ValueError('no matching busses found for {}'.format(self.bus.signature))
 
         return component
 
     def add_bus(self, bus):
         if bus.signature != self.bus.signature:
-            raise ValueError('bus signatures do not match')
+            raise ValueError('bus signatures do not match {}'.format(self.bus.signature))
 
         self.subbusses.append(bus)
         return bus
 
     def add_controller_bus(self, controller_bus):
         if controller_bus.signature != self.bus_signature:
-            raise ValueError('controller bus signature does not match')
+            raise ValueError('controller bus signature does not match {}'.format(self.bus_signature))
 
         if self.controller_bus is not None:
-            raise RuntimeError('one hot mux cannot have more than one controller')
+            raise RuntimeError('one hot mux for {} cannot have more than one controller'.format(self.bus_signature))
 
         self.controller_bus = controller_bus
         return controller_bus
@@ -233,7 +238,7 @@ class OneHotMux(am.lib.wiring.Elaboratable):
                 )
 
         if self.controller_bus is None:
-            raise RuntimeError('one hot mux needs a controller')
+            raise RuntimeError('one hot mux for {} needs a controller'.format(self.bus_signature))
         am.lib.wiring.connect(m, self.controller_bus, self.bus)
 
         return m
@@ -278,7 +283,10 @@ class Cpu(am.lib.wiring.Component):
         self.alu = Alu(self.xlen)
 
         # instruction bus
-        self.instr_bus = InstructionBus(self.xlen).create()
+        self.instr_bus = InstrBus(self.xlen).create()
+
+        # instruction mem bus
+        self.mem_bus = MemBus(self.xlen).create()
 
         # base instructions
         self.base = Rv32i(self)
@@ -344,7 +352,7 @@ class Cpu(am.lib.wiring.Component):
 
         bus_components = [self.base, self.alu] + list(self.extensions.values())
 
-        busses = {InstructionBus}
+        busses = {InstrBus, AluBus, MemBus}
         for ext in self.extensions.values():
             for bus in ext.busses:
                 busses.add(bus)
@@ -355,12 +363,13 @@ class Cpu(am.lib.wiring.Component):
             m.submodules[name] = mux = OneHotMux(bus)
             mux.add_from(bus_components)
 
-            # special bus
-            if isinstance(bus, InstructionBus):
+            # special busses
+
+            if isinstance(bus, InstrBus):
                 mux.add_controller_bus(self.instr_bus)
 
-        # alu (probably should be a bus connected like above)
-        am.lib.wiring.connect(m, self.alu, am.lib.wiring.flipped(self.ib.alu))
+            if isinstance(bus, MemBus):
+                mux.add_controller_bus(self.mem_bus)
 
         # connect instruction bus
         m.d.comb += [
@@ -375,8 +384,8 @@ class Cpu(am.lib.wiring.Component):
             self.ib.pc_next.eq(self.pc + 4),
             self.ib.stalled.eq(self.ib.wait),
 
-            self.ib.mem.dat_r.eq(self.bus.dat_r),
-            self.ib.mem.ack.eq(self.bus.ack),
+            self.mem_bus.dat_r.eq(self.bus.dat_r),
+            self.mem_bus.ack.eq(self.bus.ack),
         ]
 
         # core state machine
@@ -404,12 +413,12 @@ class Cpu(am.lib.wiring.Component):
             with m.Case(State.EXECUTE):
                 # forward memory access
                 m.d.comb += [
-                    self.bus.adr.eq(self.ib.mem.adr),
-                    self.bus.dat_w.eq(self.ib.mem.dat_w),
-                    self.bus.sel.eq(self.ib.mem.sel),
-                    self.bus.cyc.eq(self.ib.mem.cyc),
-                    self.bus.stb.eq(self.ib.mem.stb),
-                    self.bus.we.eq(self.ib.mem.we),
+                    self.bus.adr.eq(self.mem_bus.adr),
+                    self.bus.dat_w.eq(self.mem_bus.dat_w),
+                    self.bus.sel.eq(self.mem_bus.sel),
+                    self.bus.cyc.eq(self.mem_bus.cyc),
+                    self.bus.stb.eq(self.mem_bus.stb),
+                    self.bus.we.eq(self.mem_bus.we),
                 ]
 
                 # go to next instruction
@@ -440,6 +449,8 @@ class Cpu(am.lib.wiring.Component):
 class Rv32i(Extension):
     march = 'rv32i'
     name = 'rv32i'
+
+    busses = [InstrBus, AluBus, MemBus]
 
     def elaborate(self, platform):
         m = am.Module()
@@ -502,6 +513,8 @@ class Rv32i(Extension):
             ]
 
     class JALR(InstructionComponent):
+        busses = [InstrBus, AluBus]
+
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.JALR)):
                 with m.If(self.ib.instr.funct3.as_value() == 0):
@@ -514,17 +527,19 @@ class Rv32i(Extension):
                 self.ib.rd_data.eq(self.ib.pc_next),
                 self.ib.rd_stb.eq(1),
 
-                self.ib.alu.in1.eq(self.ib.rs1),
-                self.ib.alu.in2.eq(self.ib.instr.imm_i),
-                self.ib.alu.op.eq(Funct3Alu.ADD_SUB),
-                self.ib.alu.alt.eq(0),
+                self.alu_bus.in1.eq(self.ib.rs1),
+                self.alu_bus.in2.eq(self.ib.instr.imm_i),
+                self.alu_bus.op.eq(Funct3Alu.ADD_SUB),
+                self.alu_bus.alt.eq(0),
 
                 # careful: LSB set to 0
-                self.ib.j_addr.eq(am.Cat(0, self.ib.alu.out[1:])),
+                self.ib.j_addr.eq(am.Cat(0, self.alu_bus.out[1:])),
                 self.ib.j_en.eq(1),
             ]
 
     class Branch(InstructionComponent):
+        busses = [InstrBus, AluBus]
+
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.BRANCH)):
                 with m.If(self.ib.instr.funct3.branch.matches(
@@ -539,8 +554,8 @@ class Rv32i(Extension):
 
         def execute(self, platform, m):
             m.d.comb += [
-                self.ib.alu.in1.eq(self.ib.rs1),
-                self.ib.alu.in2.eq(self.ib.rs2),
+                self.alu_bus.in1.eq(self.ib.rs1),
+                self.alu_bus.in2.eq(self.ib.rs2),
 
                 self.ib.j_addr.eq(self.ib.pc + self.ib.instr.imm_b),
             ]
@@ -548,41 +563,43 @@ class Rv32i(Extension):
             with m.Switch(self.ib.instr.funct3.branch):
                 with m.Case(Funct3Branch.EQ):
                     m.d.comb += [
-                        self.ib.alu.op.eq(Funct3Alu.ADD_SUB),
-                        self.ib.alu.alt.eq(1),
+                        self.alu_bus.op.eq(Funct3Alu.ADD_SUB),
+                        self.alu_bus.alt.eq(1),
                     ]
-                    with m.If(~self.ib.alu.out.any()):
+                    with m.If(~self.alu_bus.out.any()):
                         m.d.comb += self.ib.j_en.eq(1)
 
                 with m.Case(Funct3Branch.NE):
                     m.d.comb += [
-                        self.ib.alu.op.eq(Funct3Alu.ADD_SUB),
-                        self.ib.alu.alt.eq(1),
+                        self.alu_bus.op.eq(Funct3Alu.ADD_SUB),
+                        self.alu_bus.alt.eq(1),
                     ]
-                    with m.If(self.ib.alu.out.any()):
+                    with m.If(self.alu_bus.out.any()):
                         m.d.comb += self.ib.j_en.eq(1)
 
                 with m.Case(Funct3Branch.LT):
-                    m.d.comb += self.ib.alu.op.eq(Funct3Alu.LT)
-                    with m.If(self.ib.alu.out[0]):
+                    m.d.comb += self.alu_bus.op.eq(Funct3Alu.LT)
+                    with m.If(self.alu_bus.out[0]):
                         m.d.comb += self.ib.j_en.eq(1)
 
                 with m.Case(Funct3Branch.GE):
-                    m.d.comb += self.ib.alu.op.eq(Funct3Alu.LT)
-                    with m.If(~self.ib.alu.out[0]):
+                    m.d.comb += self.alu_bus.op.eq(Funct3Alu.LT)
+                    with m.If(~self.alu_bus.out[0]):
                         m.d.comb += self.ib.j_en.eq(1)
 
                 with m.Case(Funct3Branch.LTU):
-                    m.d.comb += self.ib.alu.op.eq(Funct3Alu.LTU)
-                    with m.If(self.ib.alu.out[0]):
+                    m.d.comb += self.alu_bus.op.eq(Funct3Alu.LTU)
+                    with m.If(self.alu_bus.out[0]):
                         m.d.comb += self.ib.j_en.eq(1)
 
                 with m.Case(Funct3Branch.GEU):
-                    m.d.comb += self.ib.alu.op.eq(Funct3Alu.LTU)
-                    with m.If(~self.ib.alu.out[0]):
+                    m.d.comb += self.alu_bus.op.eq(Funct3Alu.LTU)
+                    with m.If(~self.alu_bus.out[0]):
                         m.d.comb += self.ib.j_en.eq(1)
 
     class Load(InstructionComponent):
+        busses = [InstrBus, MemBus]
+
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.LOAD)):
                 with m.If(self.ib.instr.funct3.mem.matches(
@@ -597,24 +614,24 @@ class Rv32i(Extension):
         def execute(self, platform, m):
             dest = self.ib.rs1 + self.ib.instr.imm_i
             m.d.comb += [
-                self.ib.mem.adr.eq(dest[2:]),
-                self.ib.mem.cyc.eq(1),
-                self.ib.mem.stb.eq(1),
+                self.mem_bus.adr.eq(dest[2:]),
+                self.mem_bus.cyc.eq(1),
+                self.mem_bus.stb.eq(1),
             ]
 
             with m.Switch(self.ib.instr.funct3.mem):
                 with m.Case(Funct3Mem.BYTE, Funct3Mem.BYTE_U):
-                    m.d.comb += self.ib.mem.sel.eq(1 << dest[:2])
+                    m.d.comb += self.mem_bus.sel.eq(1 << dest[:2])
 
                 with m.Case(Funct3Mem.HALF, Funct3Mem.HALF_U):
-                    m.d.comb += self.ib.mem.sel.eq(0b11 << (dest[:2] & 0b10))
+                    m.d.comb += self.mem_bus.sel.eq(0b11 << (dest[:2] & 0b10))
 
                 with m.Default():
-                    m.d.comb += self.ib.mem.sel.eq(0b1111)
+                    m.d.comb += self.mem_bus.sel.eq(0b1111)
 
-            with m.If(self.ib.mem.ack):
+            with m.If(self.mem_bus.ack):
                 # load the data
-                data = self.ib.mem.dat_r
+                data = self.mem_bus.dat_r
 
                 # shift data
                 shift = am.Mux(
@@ -664,6 +681,8 @@ class Rv32i(Extension):
                 m.d.comb += self.ib.wait.eq(1)
 
     class Store(InstructionComponent):
+        busses = [InstrBus, MemBus]
+
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.STORE)):
                 with m.If(self.ib.instr.funct3.mem.matches(
@@ -678,38 +697,40 @@ class Rv32i(Extension):
             dest = self.ib.rs1 + self.ib.instr.imm_s
 
             m.d.comb += [
-                self.ib.mem.adr.eq(dest[2:]),
-                self.ib.mem.cyc.eq(1),
-                self.ib.mem.stb.eq(1),
-                self.ib.mem.we.eq(1),
+                self.mem_bus.adr.eq(dest[2:]),
+                self.mem_bus.cyc.eq(1),
+                self.mem_bus.stb.eq(1),
+                self.mem_bus.we.eq(1),
             ]
 
             # wait here until ack
-            with m.If(~self.ib.mem.ack):
+            with m.If(~self.mem_bus.ack):
                 m.d.comb += self.ib.wait.eq(1)
 
             with m.Switch(self.ib.instr.funct3.mem):
                 with m.Case(Funct3Mem.BYTE):
                     byte = am.Cat(*[src[:8] for _ in range(4)])
                     m.d.comb += [
-                        self.ib.mem.dat_w.eq(byte),
-                        self.ib.mem.sel.eq(1 << dest[:2]),
+                        self.mem_bus.dat_w.eq(byte),
+                        self.mem_bus.sel.eq(1 << dest[:2]),
                     ]
 
                 with m.Case(Funct3Mem.HALF):
                     half = am.Cat(*(src[:16] for _ in range(2)))
                     m.d.comb += [
-                        self.ib.mem.dat_w.eq(half),
-                        self.ib.mem.sel.eq(0b11 << (dest[:2] & 0b10)),
+                        self.mem_bus.dat_w.eq(half),
+                        self.mem_bus.sel.eq(0b11 << (dest[:2] & 0b10)),
                     ]
 
                 with m.Default():
                     m.d.comb += [
-                        self.ib.mem.dat_w.eq(src),
-                        self.ib.mem.sel.eq(0b1111),
+                        self.mem_bus.dat_w.eq(src),
+                        self.mem_bus.sel.eq(0b1111),
                     ]
 
     class OpImm(InstructionComponent):
+        busses = [InstrBus, AluBus]
+
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.OP_IMM)):
                 with m.Switch(self.ib.instr.funct3.alu):
@@ -728,19 +749,21 @@ class Rv32i(Extension):
 
         def execute(self, platform, m):
             m.d.comb += [
-                self.ib.alu.in1.eq(self.ib.rs1),
-                self.ib.alu.in2.eq(self.ib.instr.imm_i),
-                self.ib.alu.op.eq(self.ib.instr.funct3.alu),
-                self.ib.alu.shift_amount.eq(self.ib.instr.rs2),
+                self.alu_bus.in1.eq(self.ib.rs1),
+                self.alu_bus.in2.eq(self.ib.instr.imm_i),
+                self.alu_bus.op.eq(self.ib.instr.funct3.alu),
+                self.alu_bus.shift_amount.eq(self.ib.instr.rs2),
 
-                self.ib.rd_data.eq(self.ib.alu.out),
+                self.ib.rd_data.eq(self.alu_bus.out),
                 self.ib.rd_stb.eq(1),
             ]
 
             with m.If(self.ib.instr.funct3.alu.matches(Funct3Alu.SHIFT_L, Funct3Alu.SHIFT_R)):
-                m.d.comb += self.ib.alu.alt.eq(self.ib.instr.funct7.alu != Funct7Alu.NORMAL)
+                m.d.comb += self.alu_bus.alt.eq(self.ib.instr.funct7.alu != Funct7Alu.NORMAL)
 
     class Op(InstructionComponent):
+        busses = [InstrBus, AluBus]
+
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.OP)):
                 with m.If(self.ib.instr.funct3.alu.matches(Funct3Alu.ADD_SUB, Funct3Alu.SHIFT_R)):
@@ -756,13 +779,13 @@ class Rv32i(Extension):
 
         def execute(self, platform, m):
             m.d.comb += [
-                self.ib.alu.in1.eq(self.ib.rs1),
-                self.ib.alu.in2.eq(self.ib.rs2),
-                self.ib.alu.op.eq(self.ib.instr.funct3.alu),
-                self.ib.alu.alt.eq(self.ib.instr.funct7.alu != Funct7Alu.NORMAL),
-                self.ib.alu.shift_amount.eq(self.ib.rs2),
+                self.alu_bus.in1.eq(self.ib.rs1),
+                self.alu_bus.in2.eq(self.ib.rs2),
+                self.alu_bus.op.eq(self.ib.instr.funct3.alu),
+                self.alu_bus.alt.eq(self.ib.instr.funct7.alu != Funct7Alu.NORMAL),
+                self.alu_bus.shift_amount.eq(self.ib.rs2),
 
-                self.ib.rd_data.eq(self.ib.alu.out),
+                self.ib.rd_data.eq(self.alu_bus.out),
                 self.ib.rd_stb.eq(1),
             ]
 
@@ -967,7 +990,7 @@ class Zicntr(Extension):
     #march = 'zicntr'
     name = 'zicntr'
 
-    busses = [InstructionBus, CsrBus]
+    busses = [InstrBus, CsrBus]
 
     def __init__(self, cpu):
         super().__init__(cpu)
