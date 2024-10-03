@@ -73,6 +73,7 @@ class InstrBus(am.lib.wiring.Signature):
             rs2 = am.lib.wiring.Out(xlen),
 
             pc_next = am.lib.wiring.Out(xlen),
+            pc_jump = am.lib.wiring.Out(xlen),
             stalled = am.lib.wiring.Out(1),
 
             # instruction -> cpu
@@ -83,6 +84,7 @@ class InstrBus(am.lib.wiring.Signature):
             rd_stb = am.lib.wiring.In(1),
 
             j_addr = am.lib.wiring.In(xlen),
+            j_rel = am.lib.wiring.In(1),
             j_en = am.lib.wiring.In(1),
 
             wait = am.lib.wiring.In(1),
@@ -382,6 +384,7 @@ class Cpu(am.lib.wiring.Component):
             self.ib.rs2.eq(self.rs2),
 
             self.ib.pc_next.eq(self.pc + 4),
+            self.ib.pc_jump.eq(am.Mux(self.ib.j_rel, self.pc + self.ib.j_addr, self.ib.j_addr)),
             self.ib.stalled.eq(self.ib.wait),
 
             self.mem_bus.dat_r.eq(self.bus.dat_r),
@@ -425,7 +428,7 @@ class Cpu(am.lib.wiring.Component):
                 with m.If(~self.ib.wait):
                     m.d.sync += self.state.eq(State.FETCH)
                     with m.If(self.ib.j_en):
-                        m.d.sync += self.pc.eq(self.ib.j_addr)
+                        m.d.sync += self.pc.eq(self.ib.pc_jump)
                     with m.Else():
                         m.d.sync += self.pc.eq(self.ib.pc_next)
 
@@ -494,7 +497,10 @@ class Rv32i(Extension):
 
         def execute(self, platform, m):
             m.d.comb += [
-                self.ib.rd_data.eq(self.ib.pc + self.ib.instr.imm_u),
+                self.ib.j_addr.eq(self.ib.instr.imm_u),
+                self.ib.j_rel.eq(1),
+
+                self.ib.rd_data.eq(self.ib.pc_jump),
                 self.ib.rd_stb.eq(1),
             ]
 
@@ -508,32 +514,26 @@ class Rv32i(Extension):
                 self.ib.rd_data.eq(self.ib.pc_next),
                 self.ib.rd_stb.eq(1),
 
-                self.ib.j_addr.eq(self.ib.pc + self.ib.instr.imm_j),
+                self.ib.j_addr.eq(self.ib.instr.imm_j),
+                self.ib.j_rel.eq(1),
                 self.ib.j_en.eq(1),
             ]
 
     class JALR(InstructionComponent):
-        busses = [InstrBus, AluBus]
-
         def always(self, platform, m):
             with m.If(self.ib.instr.op.matches(Op.JALR)):
                 with m.If(self.ib.instr.funct3.as_value() == 0):
                     m.d.comb += self.ib.valid.eq(1)
 
         def execute(self, platform, m):
-            #dest = self.ib.rs1 + self.ib.instr.imm_i
+            dest = self.ib.rs1 + self.ib.instr.imm_i
 
             m.d.comb += [
                 self.ib.rd_data.eq(self.ib.pc_next),
                 self.ib.rd_stb.eq(1),
 
-                self.alu_bus.in1.eq(self.ib.rs1),
-                self.alu_bus.in2.eq(self.ib.instr.imm_i),
-                self.alu_bus.op.eq(Funct3Alu.ADD_SUB),
-                self.alu_bus.alt.eq(0),
-
                 # careful: LSB set to 0
-                self.ib.j_addr.eq(am.Cat(0, self.alu_bus.out[1:])),
+                self.ib.j_addr.eq(am.Cat(0, dest[1:])),
                 self.ib.j_en.eq(1),
             ]
 
@@ -557,7 +557,8 @@ class Rv32i(Extension):
                 self.alu_bus.in1.eq(self.ib.rs1),
                 self.alu_bus.in2.eq(self.ib.rs2),
 
-                self.ib.j_addr.eq(self.ib.pc + self.ib.instr.imm_b),
+                self.ib.j_addr.eq(self.ib.instr.imm_b),
+                self.ib.j_rel.eq(1),
             ]
 
             with m.Switch(self.ib.instr.funct3.branch):
