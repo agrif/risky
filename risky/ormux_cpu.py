@@ -894,55 +894,46 @@ class Zicsr(Extension):
                     m.d.sync += am.Print(info)
 
         with m.If(self.ib.valid & self.ib.execute):
+            m.d.comb += [
+                self.ib.rd_data.eq(self.csr_bus.r_data),
+                self.ib.rd_stb.eq(1),
+            ]
+
             with m.Switch(self.ib.instr.funct3.csr):
                 with m.Case(Funct3Csr.RW):
                     m.d.comb += [
                         # no read side effects if rd is zero
                         self.csr_bus.r_stb.eq(self.ib.instr.rd != Reg.ZERO),
-                        self.ib.rd_stb.eq(1),
-                        self.ib.rd_data.eq(self.csr_bus.r_data),
 
                         self.csr_bus.w_stb.eq(1),
-                        self.modify.eq(0),
                         self.setbits.eq(1),
-                        self.new.eq(self.ib.rs1),
                     ]
 
                 with m.Case(Funct3Csr.RS):
                     m.d.comb += [
                         self.csr_bus.r_stb.eq(1),
-                        self.ib.rd_stb.eq(1),
-                        self.ib.rd_data.eq(self.csr_bus.r_data),
 
                         # no write side effects if rs1 is zero
                         self.csr_bus.w_stb.eq(self.ib.instr.rs1 != Reg.ZERO),
                         self.modify.eq(1),
                         self.setbits.eq(1),
-                        self.new.eq(self.ib.rs1),
                     ]
 
                 with m.Case(Funct3Csr.RC):
                     m.d.comb += [
                         self.csr_bus.r_stb.eq(1),
-                        self.ib.rd_stb.eq(1),
-                        self.ib.rd_data.eq(self.csr_bus.r_data),
 
                         # no write side effects if rs1 is zero
                         self.csr_bus.w_stb.eq(self.ib.instr.rs1 != Reg.ZERO),
                         self.modify.eq(1),
-                        self.setbits.eq(0),
-                        self.new.eq(self.ib.rs1),
                     ]
 
                 with m.Case(Funct3Csr.RWI):
                     m.d.comb += [
                         # no read side effects if rd is zero
                         self.csr_bus.r_stb.eq(self.ib.instr.rd != Reg.ZERO),
-                        self.ib.rd_stb.eq(1),
-                        self.ib.rd_data.eq(self.csr_bus.r_data),
 
                         self.csr_bus.w_stb.eq(1),
-                        self.modify.eq(0),
                         self.setbits.eq(1),
                         self.new.eq(self.uimm),
                     ]
@@ -950,8 +941,6 @@ class Zicsr(Extension):
                 with m.Case(Funct3Csr.RSI):
                     m.d.comb += [
                         self.csr_bus.r_stb.eq(1),
-                        self.ib.rd_stb.eq(1),
-                        self.ib.rd_data.eq(self.csr_bus.r_data),
 
                         # no write side effects if uimm is zero
                         self.csr_bus.w_stb.eq(self.uimm != 0),
@@ -963,13 +952,10 @@ class Zicsr(Extension):
                 with m.Case(Funct3Csr.RCI):
                     m.d.comb += [
                         self.csr_bus.r_stb.eq(1),
-                        self.ib.rd_stb.eq(1),
-                        self.ib.rd_data.eq(self.csr_bus.r_data),
 
                         # no write side effects if uimm is zero
                         self.csr_bus.w_stb.eq(self.uimm != 0),
                         self.modify.eq(1),
-                        self.setbits.eq(0),
                         self.new.eq(self.uimm),
                     ]
 
