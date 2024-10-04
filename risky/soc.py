@@ -1,4 +1,6 @@
 import contextlib
+import io
+import xml.etree.ElementTree as ET
 
 import amaranth as am
 
@@ -234,3 +236,106 @@ class Soc(am.lib.wiring.Component):
 
         h += '#endif /* __RISKY_H_INCLUDED */\n'
         return h
+
+    def generate_svd(self):
+        root = ET.Element('device')
+        ns = {'xs': 'http://www.w3.org/2001/XMLSchema-instance'}
+        doc = ET.ElementTree(root)
+
+        def namespaced(name, tag):
+            return ET.QName(ns[name], tag)
+
+        def add_text(tag, name, text):
+            child = ET.SubElement(tag, name)
+            child.text = str(text)
+            return child
+
+        def identify_name(name):
+            try:
+                int(name)
+                name = 'V_' + name
+            except ValueError:
+                pass
+
+            return name
+
+        root.attrib[namespaced('xs', 'noNamespaceSchemaLocation')] = 'CMSIS-SVD.xsd'
+        root.attrib['schemaVersion'] = '1.1'
+
+        add_text(root, 'name', 'risky')
+        add_text(root, 'version', '1.0')
+        add_text(root, 'description', 'Risky RISCV Core')
+
+        add_text(root, 'addressUnitBits', 8)
+        add_text(root, 'width', 32)
+
+        cpu = ET.SubElement(root, 'cpu')
+        add_text(cpu, 'name', 'other')
+        add_text(cpu, 'revision', 'r{}p{}'.format(0, 0))
+        add_text(cpu, 'endian', 'little')
+        add_text(cpu, 'mpuPresent', 'false')
+        fpu = 'f' in self.cpu.march_parts
+        add_text(cpu, 'fpuPresent', 'true' if fpu else 'false')
+        add_text(cpu, 'nvicPrioBits', 0)
+        add_text(cpu, 'vendorSystickConfig', 'true')
+
+        peripherals = ET.SubElement(root, 'peripherals')
+        tree = self.memory.get_resource_tree().children['io']
+
+        for subtree in tree.children.values():
+            p = ET.SubElement(peripherals, 'peripheral')
+
+            add_text(p, 'name', identify_name(subtree.name))
+            add_text(p, 'baseAddress', '0x{:08x}'.format(subtree.start))
+
+            registers = ET.SubElement(p, 'registers')
+            for reginfo, _ in subtree.walk():
+                if not reginfo.resource:
+                    continue
+
+                reg = ET.SubElement(registers, 'register')
+
+                leafname = '_'.join(reginfo.path[len(subtree.path):])
+                add_text(reg, 'name', identify_name(leafname))
+                add_text(reg, 'addressOffset', '0x{:x}'.format(reginfo.start - subtree.start))
+                add_text(reg, 'size', 8 * reginfo.size)
+                if reginfo.c_type:
+                    add_text(reg, 'dataType', reginfo.c_type)
+
+                if isinstance(reginfo.resource, amaranth_soc.csr.Register):
+                    accessmap = dict(
+                        r = 'read-only',
+                        w = 'write-only',
+                        rw = 'read-write',
+                    )
+                    access = accessmap.get(reginfo.resource.element.access.value)
+                    if access:
+                        add_text(reg, 'access', accessmap[reginfo.resource.element.access.value])
+                    fields = None
+                    field_start = 0
+                    for fn, fv in reginfo.resource:
+                        if not fn:
+                            # whole register is field
+                            break
+
+                        if fields is None:
+                            fields = ET.SubElement(reg, 'fields')
+
+                        field_size = fv.port.shape.width
+                        field_end = field_start + field_size
+
+                        field = ET.SubElement(fields, 'field')
+
+                        add_text(field, 'name', identify_name('_'.join(fn)))
+                        add_text(field, 'bitRange', '[{}:{}]'.format(field_end - 1, field_start))
+                        access = accessmap.get(fv.port.signature.access.value)
+                        if access:
+                            add_text(field, 'access', access)
+
+                        field_start = field_end
+
+        ET.indent(doc)
+        with io.BytesIO() as f:
+            doc.write(f, encoding='utf-8', xml_declaration=True)
+            f.write(b'\n')
+            return f.getvalue().decode('utf-8')

@@ -137,6 +137,12 @@ def header(output):
 
 @cli.command()
 @click.option('-o', '--output', type=click.File('w'), default='-')
+def svd(output):
+    soc = risky.soc.Soc(1_000_000)
+    output.write(soc.generate_svd())
+
+@cli.command()
+@click.option('-o', '--output', type=click.File('w'), default='-')
 def verilog(output):
     top = risky.ormux_cpu.Cpu()
     output.write(am.back.verilog.convert(top))
