@@ -803,9 +803,9 @@ class Zicntr(Extension):
         # cycle is easy
         m.d.sync += self.cycle.eq(self.cycle + 1)
 
-        # we'll cheat and increment instret on every instruction fetch
+        # we'll cheat and increment instret on every good instruction fetch
         # technically, some instructions never retire. so, FIXME
-        with m.If(cpu.state == State.FETCH_INSTR):
+        with m.If(cpu.state.matches(State.FETCH_INSTR) & cpu.bus.ack):
             m.d.sync += self.instret.eq(self.instret + 1)
 
         # these registers are read-only
