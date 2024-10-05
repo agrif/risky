@@ -116,12 +116,13 @@ def test(cpu_name, instruction_name):
 
 @cli.command()
 @click.option('-o', '--output', type=click.File('w'))
+@click.option('-g', '--gtk-wave', type=click.File('w'))
 @click.option('--cycles', type=int)
 @click.argument('sources', nargs=-1, required=True)
-def simulate(output, cycles, sources):
+def simulate(output, gtk_wave, cycles, sources):
     plain = risky.test.plain.Plain(sources, cycles=cycles)
     unbuffer_stdout()
-    plain.run(output=output)
+    plain.run(output=output, gtkw_file=gtk_wave)
 
 @cli.command()
 @click.option('-o', '--output', type=click.File('w'), default='-')

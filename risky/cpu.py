@@ -22,6 +22,10 @@ class Extension:
     def elaborate_post(self, platform, cpu, m):
         pass
 
+    @property
+    def debug_traces(self):
+        return []
+
 class State(am.lib.enum.Enum):
     FETCH_INSTR = 0
     EXECUTE = 1
@@ -524,6 +528,47 @@ class Cpu(am.lib.wiring.Component):
     def valid_instruction(self, platform, m):
         m.d.comb += self.is_valid_instruction.eq(1)
 
+    @property
+    def debug_traces(self):
+        t = {}
+
+        t['memory'] = [
+            self.bus.adr << 2,
+            self.bus.cyc,
+            self.bus.stb,
+            self.bus.we,
+            self.bus.sel,
+            self.bus.dat_r,
+            self.bus.dat_w,
+            self.bus.ack,
+        ]
+
+        t['state'] = [
+            self.pc,
+            self.state,
+            {'instr': self.instr},
+            self.is_valid_instruction,
+        ]
+
+        t['registers'] = [r for r in self.regs]
+
+        t['alu'] = [
+            self.alu.in1,
+            self.alu.in2,
+            self.alu.op,
+            self.alu.shift_amount,
+            self.alu.out,
+        ]
+
+        exts = {}
+        t['extensions'] = exts
+        for ext in self.extensions.values():
+            ext_traces = ext.debug_traces
+            if ext_traces:
+                exts[ext.__class__.__name__] = ext_traces
+
+        return t
+
 class AluOp(am.lib.enum.Enum):
     ADD = 0
     SUB = 1
@@ -730,6 +775,16 @@ class Zicsr(Extension):
                         self.new.eq(self.uimm),
                     ]
 
+    @property
+    def debug_traces(self):
+        return [
+            self.csr_addr,
+            self.csr_read_en,
+            self.csr_read_data,
+            self.csr_write_en,
+            self.csr_write_data,
+        ]
+
 class Zicntr(Extension):
     # some gcc don't support this, and it also doesn't really matter
     #march = 'zicntr'
@@ -782,3 +837,10 @@ class Zicntr(Extension):
                     # instret
                     self.csr.valid_csr(platform, cpu, m, write=False)
                     m.d.comb += self.csr.csr_read_data.eq(self.instret[32:])
+
+    @property
+    def debug_traces(self):
+        return [
+            self.cycle,
+            self.instret,
+        ]

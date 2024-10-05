@@ -373,3 +373,28 @@ class Cpu(am.lib.wiring.Component):
         ).all())
 
         return m
+
+    @property
+    def debug_traces(self):
+        t = {}
+
+        t['memory'] = [
+            self.bus.adr << 2,
+            self.bus.cyc,
+            self.bus.stb,
+            self.bus.we,
+            self.bus.sel,
+            self.bus.dat_r,
+            self.bus.dat_w,
+            self.bus.ack,
+        ]
+
+        t['state'] = [
+            self.pc,
+            self.state,
+            {'instr': self.instr},
+        ]
+
+        t['registers'] = [r for r in self.regs]
+
+        return t

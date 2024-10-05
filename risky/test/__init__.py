@@ -10,14 +10,15 @@ import risky.soc
 class Simulated:
     clk_freq = 1_000_000
 
-    def run(self, output=None):
+    def run(self, output=None, gtkw_file=None):
         self.dut = self.construct()
         self.sim = am.sim.Simulator(self.dut)
         self.sim.add_clock(1 / self.clk_freq)
         self.sim.add_testbench(self.testbench)
 
         if output:
-            with self.sim.write_vcd(output):
+            traces = self.dut.debug_traces
+            with self.sim.write_vcd(output, gtkw_file=gtkw_file, traces=traces):
                 self.sim.run()
         else:
             self.sim.run()

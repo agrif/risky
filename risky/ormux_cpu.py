@@ -251,6 +251,10 @@ class Extension(BusConnectedComponent):
     def __init__(self, cpu, signature={}):
         super().__init__(cpu.xlen, signature=signature)
 
+    @property
+    def debug_traces(self):
+        return []
+
     def forward_busses(self, platform, m, components):
         for bus in self.busses:
             m.submodules[bus.name + '_mux'] = OneHotMux.forward(getattr(self, bus.name + '_bus'), components)
@@ -435,6 +439,47 @@ class Cpu(am.lib.wiring.Component):
                 m.d.sync += self.regs[self.instr.rd].eq(self.ib.rd_data)
 
         return m
+
+    @property
+    def debug_traces(self):
+        t = {}
+
+        t['memory'] = [
+            self.bus.adr << 2,
+            self.bus.cyc,
+            self.bus.stb,
+            self.bus.we,
+            self.bus.sel,
+            self.bus.dat_r,
+            self.bus.dat_w,
+            self.bus.ack,
+        ]
+
+        t['state'] = [
+            self.pc,
+            self.state,
+            {'instr': self.instr},
+            self.ib.valid,
+        ]
+
+        t['registers'] = [r for r in self.regs]
+
+        t['alu'] = [
+            self.alu.in1,
+            self.alu.in2,
+            self.alu.op,
+            self.alu.alt,
+            self.alu.out,
+        ]
+
+        exts = {}
+        t['extensions'] = exts
+        for ext in self.extensions.values():
+            ext_traces = ext.debug_traces
+            if ext_traces:
+                exts[ext.name] = ext_traces
+
+        return t
 
 class Rv32i(Extension):
     march = 'rv32i'
@@ -961,6 +1006,17 @@ class Zicsr(Extension):
 
         return m
 
+    @property
+    def debug_traces(self):
+        return [
+            self.csr_bus.adr,
+            self.csr_bus.r_stb,
+            self.csr_bus.r_data,
+            self.csr_bus.w_stb,
+            self.csr_bus.w_data,
+            self.csr_bus.valid,
+        ]
+
 class Zicntr(Extension):
     # some gcc don't support this, and it also doesn't really matter
     #march = 'zicntr'
@@ -1026,3 +1082,10 @@ class Zicntr(Extension):
                     ]
 
         return m
+
+    @property
+    def debug_traces(self):
+        return [
+            self.cycle,
+            self.instret,
+        ]

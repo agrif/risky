@@ -87,6 +87,19 @@ class Soc(am.lib.wiring.Component):
 
         return m
 
+    @property
+    def debug_traces(self):
+        t = self.cpu.debug_traces.copy()
+
+        t['uart'] = [
+            self.uart.rx,
+            self.uart.tx,
+        ]
+
+        t['output'] = [o for o in self.output.output]
+
+        return t
+
     @contextlib.contextmanager
     def compiler(self, **kwargs):
         our_kwargs = dict(march=self.cpu.march)
