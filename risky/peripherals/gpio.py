@@ -1,6 +1,5 @@
 import amaranth as am
 import amaranth_soc.csr
-import amaranth_soc.csr.wishbone
 
 import risky.csr
 

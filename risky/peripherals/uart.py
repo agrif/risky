@@ -3,7 +3,6 @@ import amaranth.lib.enum
 import amaranth.lib.fifo
 
 import amaranth_soc.csr
-import amaranth_soc.csr.wishbone
 
 import risky.csr
 

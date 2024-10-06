@@ -9,6 +9,7 @@ import amaranth.lib.memory
 import amaranth.lib.enum
 
 import amaranth_soc.wishbone
+import amaranth_soc.csr.wishbone
 
 def unpack_data(width, data):
     try:
