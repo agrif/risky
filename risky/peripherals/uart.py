@@ -125,14 +125,11 @@ class Buffered(am.lib.wiring.Component):
             # tx fifo output
             unbuffered.tx_data.eq(tx_fifo.r_data),
             unbuffered.tx_stb.eq(tx_fifo.r_rdy & unbuffered.tx_ready),
+            tx_fifo.r_en.eq(unbuffered.tx_stb),
 
             # levels
             self.tx_level.eq(tx_fifo.level),
         ]
-
-        # delay the r_en which goes to the next entry by 1 cycle
-        # so that unbuffered can latch the old tx_data
-        m.d.sync += tx_fifo.r_en.eq(unbuffered.tx_stb)
 
         return m
 
