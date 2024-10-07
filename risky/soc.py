@@ -217,6 +217,16 @@ class Soc(am.lib.wiring.Component):
                     n.size,
                 )
         memory_x += '}\n'
+
+        memory_x += '\n'
+
+        memory_x += 'REGION_ALIAS("REGION_TEXT", ROM);\n'
+        memory_x += 'REGION_ALIAS("REGION_RODATA", ROM);\n'
+        memory_x += 'REGION_ALIAS("REGION_DATA", RAM);\n'
+        memory_x += 'REGION_ALIAS("REGION_BSS", RAM);\n'
+        memory_x += 'REGION_ALIAS("REGION_HEAP", RAM);\n'
+        memory_x += 'REGION_ALIAS("REGION_STACK", RAM);\n'
+
         return memory_x
 
     def generate_header(self):
