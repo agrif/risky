@@ -30,6 +30,14 @@ class Demo(am.Elaboratable):
             m.d.comb += led.o.eq(i)
 
         uart = platform.request('uart')
-        m.d.comb += uart.tx.o.eq(soc.uart.tx)
+        m.d.comb += uart.tx.o.eq(soc.tx)
+
+        spi = platform.request('spi_flash_1x')
+        m.d.comb += [
+            spi.cs.o.eq(soc.spi_cs),
+            spi.clk.o.eq(soc.sclk),
+            spi.copi.o.eq(soc.copi),
+            soc.cipo.eq(spi.cipo.i),
+        ]
 
         return m

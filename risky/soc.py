@@ -13,6 +13,7 @@ import risky.csr
 import risky.old_cpu
 import risky.ormux_cpu
 import risky.peripherals.gpio
+import risky.peripherals.spi
 import risky.peripherals.uart
 
 class Info(risky.csr.Peripheral):
@@ -42,6 +43,11 @@ class Info(risky.csr.Peripheral):
 class Soc(am.lib.wiring.Component):
     tx: am.lib.wiring.Out(1)
 
+    spi_cs: am.lib.wiring.Out(1)
+    sclk: am.lib.wiring.Out(1)
+    copi: am.lib.wiring.Out(1)
+    cipo: am.lib.wiring.In(1)
+
     def __init__(self, clk_freq, cpu=None, memory_contents=b''):
         super().__init__()
 
@@ -69,6 +75,7 @@ class Soc(am.lib.wiring.Component):
             self.uart = p.add('uart', risky.peripherals.uart.Peripheral())
             p.add('info', Info(clk_freq))
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
+            self.spi = p.add('spi', risky.peripherals.spi.Peripheral())
 
     def set_rom(self, contents):
         self.rom.set_data(contents)
@@ -83,6 +90,11 @@ class Soc(am.lib.wiring.Component):
 
         m.d.comb += [
             self.tx.eq(self.uart.tx),
+
+            self.spi_cs.eq(self.spi.cs),
+            self.sclk.eq(self.spi.sclk),
+            self.copi.eq(self.spi.copi),
+            self.spi.cipo.eq(self.cipo),
         ]
 
         return m
@@ -97,6 +109,13 @@ class Soc(am.lib.wiring.Component):
         ]
 
         t['output'] = [o for o in self.output.output]
+
+        t['spi'] = [
+            self.spi.cs,
+            self.spi.sclk,
+            self.spi.copi,
+            self.spi.cipo,
+        ]
 
         return t
 
