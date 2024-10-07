@@ -41,6 +41,7 @@ class Info(risky.csr.Peripheral):
         return m
 
 class Soc(am.lib.wiring.Component):
+    rx: am.lib.wiring.In(1)
     tx: am.lib.wiring.Out(1)
 
     spi_cs: am.lib.wiring.Out(1)
@@ -89,6 +90,7 @@ class Soc(am.lib.wiring.Component):
         am.lib.wiring.connect(m, self.cpu.bus, self.memory.bus)
 
         m.d.comb += [
+            self.uart.rx.eq(self.rx),
             self.tx.eq(self.uart.tx),
 
             self.spi_cs.eq(self.spi.cs),

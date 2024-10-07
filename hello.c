@@ -10,8 +10,12 @@ void uart_set_baud(uint32_t baud) {
     IO_UART_BAUD = divisor - 1;
 }
 
+bool uart_can_send(void) {
+    return IO_UART_TX_CONTROL & IO_UART_TX_CONTROL_READY_MASK;
+}
+
 void uart_send_c(char c) {
-    while (!(IO_UART_TX_CONTROL & IO_UART_TX_CONTROL_READY_MASK));
+    while (!uart_can_send());
     IO_UART_TX = c;
 }
 
@@ -19,6 +23,15 @@ void uart_send(const char* s) {
     for (size_t i = 0; s[i]; i++) {
         uart_send_c(s[i]);
     }
+}
+
+bool uart_can_recv(void) {
+    return IO_UART_RX_CONTROL & IO_UART_RX_CONTROL_READY_MASK;
+}
+
+char uart_recv_c(void) {
+    while (!uart_can_recv());
+    return IO_UART_RX;
 }
 
 uint64_t get_cycle(void) {
