@@ -118,9 +118,10 @@ def test(cpu_name, instruction_name):
 @click.option('-o', '--output', type=click.File('w'))
 @click.option('-g', '--gtk-wave', type=click.File('w'))
 @click.option('--cycles', type=int)
+@click.option('--boot/--no-boot', is_flag=True, default=True)
 @click.argument('sources', nargs=-1, required=True)
-def simulate(output, gtk_wave, cycles, sources):
-    plain = risky.test.plain.Plain(sources, cycles=cycles)
+def simulate(output, gtk_wave, cycles, sources, boot):
+    plain = risky.test.plain.Plain(sources, cycles=cycles, boot=boot)
     unbuffer_stdout()
     plain.run(output=output, gtkw_file=gtk_wave)
 

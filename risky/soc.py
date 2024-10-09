@@ -17,26 +17,31 @@ import risky.peripherals.spi
 import risky.peripherals.uart
 
 class Info(risky.csr.Peripheral):
-    class ClkFreq(amaranth_soc.csr.Register, access='r'):
+    class Constant(amaranth_soc.csr.Register, access='r'):
         def __init__(self):
             super().__init__(
                 amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 32),
             )
 
-    def __init__(self, clk_freq_hz):
-        super().__init__(depth=4)
+    def __init__(self, clk_freq_hz, baud=115200):
+        super().__init__(depth=8)
 
         self.clk_freq_hz = int(clk_freq_hz)
+        self.std_baud = int((self.clk_freq_hz + (baud // 2)) // baud) - 1
 
         with self.register_builder() as b:
-            self.reg_clk_freq = b.add('clk_freq', self.ClkFreq())
+            self.reg_clk_freq = b.add('clk_freq', self.Constant())
+            self.reg_std_baud = b.add('std_baud', self.Constant())
 
     def elaborate(self, platform):
         m = am.Module()
 
         self.elaborate_registers(platform, m)
 
-        m.d.comb += self.reg_clk_freq.f.r_data.eq(self.clk_freq_hz)
+        m.d.comb += [
+            self.reg_clk_freq.f.r_data.eq(self.clk_freq_hz),
+            self.reg_std_baud.f.r_data.eq(self.std_baud),
+        ]
 
         return m
 
@@ -52,6 +57,8 @@ class Soc(am.lib.wiring.Component):
     def __init__(self, clk_freq, cpu=None, memory_contents=b''):
         super().__init__()
 
+        self.clk_freq = clk_freq
+
         if cpu is None:
             #cpu = risky.old_cpu.Cpu()
             cpu = risky.ormux_cpu.Cpu([
@@ -66,8 +73,10 @@ class Soc(am.lib.wiring.Component):
         self.cpu = cpu
         self.memory = risky.memory.MemoryMap(alignment=28)
 
+        # 4K bootloader rom
+        self.bootloader = self.memory.add_rom('bootloader', 4 * 1024)
         # 32K rom
-        self.rom = self.memory.add_rom('rom', 32 * 1024, init=memory_contents)
+        self.rom = self.memory.add_ram('rom', 32 * 1024, init=memory_contents)
         # 8K ram
         self.memory.add_ram('ram', 8 * 1024)
 
@@ -77,6 +86,16 @@ class Soc(am.lib.wiring.Component):
             p.add('info', Info(clk_freq))
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
             self.spi = p.add('spi', risky.peripherals.spi.Peripheral())
+
+        with self.compiler(bootloader=True) as c:
+            c.add(c.copy_runtime_file('bootloader.c'))
+            elf = c.link()
+
+            #elf.dump('bootloader.elf')
+            #elf.dump_flat('bootloader.bin')
+            #elf.dump_disassemble('bootloader.dump')
+
+            self.bootloader.set_data(elf.flat)
 
     def set_rom(self, contents):
         self.rom.set_data(contents)
@@ -122,12 +141,12 @@ class Soc(am.lib.wiring.Component):
         return t
 
     @contextlib.contextmanager
-    def compiler(self, **kwargs):
+    def compiler(self, bootloader=False, **kwargs):
         our_kwargs = dict(march=self.cpu.march)
         our_kwargs.update(kwargs)
         compiler = risky.compiler.Compiler(**our_kwargs)
         with compiler as c:
-            c.include_source('memory.x', self.generate_memory_x())
+            c.include_source('memory.x', self.generate_memory_x(bootloader=bootloader))
             c.include_source('risky.h', self.generate_header())
 
             yield c
@@ -205,7 +224,7 @@ class Soc(am.lib.wiring.Component):
         print('loading binaries:', *fnames)
         return cls.with_binaries(clk_freq, *fnames)
 
-    def generate_memory_x(self):
+    def generate_memory_x(self, bootloader=False):
         memory_x = 'MEMORY\n{\n'
         for n, children in self.memory.get_resource_tree().walk():
             if n.memory_x_access:
@@ -220,8 +239,12 @@ class Soc(am.lib.wiring.Component):
 
         memory_x += '\n'
 
-        memory_x += 'REGION_ALIAS("REGION_TEXT", ROM);\n'
-        memory_x += 'REGION_ALIAS("REGION_RODATA", ROM);\n'
+        code_region = 'ROM'
+        if bootloader:
+            code_region = 'BOOTLOADER'
+
+        memory_x += 'REGION_ALIAS("REGION_TEXT", {});\n'.format(code_region)
+        memory_x += 'REGION_ALIAS("REGION_RODATA", {});\n'.format(code_region)
         memory_x += 'REGION_ALIAS("REGION_DATA", RAM);\n'
         memory_x += 'REGION_ALIAS("REGION_BSS", RAM);\n'
         memory_x += 'REGION_ALIAS("REGION_HEAP", RAM);\n'
