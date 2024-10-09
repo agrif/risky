@@ -19,6 +19,8 @@ class Unbuffered(am.lib.wiring.Component):
     cpol: am.lib.wiring.In(1)
     # 0 sample active edge, 1 sample idle edge
     cpha: am.lib.wiring.In(1)
+    # override chip select
+    force_cs: am.lib.wiring.In(1)
 
     # is a busy ongoing?
     busy: am.lib.wiring.Out(1)
@@ -45,7 +47,7 @@ class Unbuffered(am.lib.wiring.Component):
 
         # overall state
         state = am.Signal(self.State)
-        m.d.comb += self.cs.eq(state.matches(self.State.BUSY, self.State.WAIT))
+        m.d.comb += self.cs.eq(state.matches(self.State.BUSY, self.State.WAIT) | self.force_cs)
 
         # clock divider
         count = am.Signal(33)
@@ -157,6 +159,7 @@ class Buffered(am.lib.wiring.Component):
             'divisor': am.lib.wiring.In(32, init=-1),
             'cpol': am.lib.wiring.In(1),
             'cpha': am.lib.wiring.In(1),
+            'force_cs': am.lib.wiring.In(1),
 
             'busy': am.lib.wiring.Out(1),
 
@@ -190,6 +193,7 @@ class Buffered(am.lib.wiring.Component):
             unbuffered.divisor.eq(self.divisor),
             unbuffered.cpol.eq(self.cpol),
             unbuffered.cpha.eq(self.cpha),
+            unbuffered.force_cs.eq(self.force_cs),
 
             self.busy.eq(unbuffered.busy),
 
@@ -224,6 +228,7 @@ class Peripheral(risky.csr.Peripheral):
         busy: amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 1)
         cpol: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 1)
         cpha: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 1)
+        cs: amaranth_soc.csr.Field(amaranth_soc.csr.action.RW, 1)
 
     class FifoInfo(amaranth_soc.csr.Register, access='r'):
         ready: amaranth_soc.csr.Field(amaranth_soc.csr.action.R, 1)
@@ -333,6 +338,7 @@ class Peripheral(risky.csr.Peripheral):
             device.divisor.eq(self.baud.f.data),
             device.cpol.eq(self.control.f.cpol.data),
             device.cpha.eq(self.control.f.cpha.data),
+            device.force_cs.eq(self.control.f.cs.data),
 
             self.control.f.busy.r_data.eq(device.busy),
 
