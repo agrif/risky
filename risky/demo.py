@@ -1,4 +1,5 @@
 import amaranth as am
+import amaranth.lib.cdc
 
 import risky.clockworks
 import risky.soc
@@ -16,8 +17,13 @@ class Demo(am.Elaboratable):
         #m.domains += clockworks.domain
         #freq = clockworks.out_freq
 
+        reset_button = platform.request('button')
+        reset_sync = am.Signal(1)
+        m.submodules.reset_sync = am.lib.cdc.AsyncFFSynchronizer(reset_button.i, reset_sync)
+
         soc = risky.soc.Soc.with_autodetect(freq, *self.sources)
         #soc = am.DomainRenamer('slow')(soc)
+        soc = am.ResetInserter(reset_sync)(soc)
         m.submodules.soc = soc
 
         debugreg = soc.output.output[0]
