@@ -12,6 +12,7 @@ import traceback
 
 import risky.cpu
 import risky.demo
+import risky.loader
 import risky.old_cpu
 import risky.ormux_cpu
 import risky.soc
@@ -148,6 +149,38 @@ def svd(output):
 def verilog(output):
     top = risky.ormux_cpu.Cpu()
     output.write(am.back.verilog.convert(top))
+
+@cli.command()
+@click.argument('port')
+@click.option('-b', '--baud', type=int, default=115200)
+@click.option('-a', '--attach', is_flag=True)
+@click.argument('sources', nargs=-1, required=True)
+def load(port, baud, attach, sources):
+    soc = risky.soc.Soc.with_autodetect(1_000_000, *sources)
+    boot = risky.loader.Bootloader(port, baud=baud)
+
+    print('waiting for reset...')
+    boot.wait_for_reset()
+
+    print('Writing:')
+    with tqdm.tqdm(total=len(soc.program), unit='B', unit_scale=True) as pbar:
+        for chunk in boot.write_memory_stream(boot.boot_address, soc.program):
+            pbar.update(len(chunk))
+
+    print('Verifying:')
+    with tqdm.tqdm(total=len(soc.program), unit='B', unit_scale=True) as pbar:
+        i = 0
+        for chunk in boot.read_memory_stream(boot.boot_address, boot.boot_address + len(soc.program)):
+            if chunk != soc.program[i:i + len(chunk)]:
+                raise RuntimeError('program verification failed')
+
+            i += len(chunk)
+            pbar.update(len(chunk))
+
+    boot.boot()
+
+    if attach:
+        boot.attach()
 
 BOARDS = {
     'de10-nano': amaranth_boards.de10_nano.DE10NanoPlatform,

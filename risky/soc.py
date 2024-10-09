@@ -58,6 +58,7 @@ class Soc(am.lib.wiring.Component):
         super().__init__()
 
         self.clk_freq = clk_freq
+        self.program = memory_contents
 
         if cpu is None:
             #cpu = risky.old_cpu.Cpu()
@@ -97,8 +98,9 @@ class Soc(am.lib.wiring.Component):
 
             self.bootloader.set_data(elf.flat)
 
-    def set_rom(self, contents):
+    def set_program(self, contents):
         self.rom.set_data(contents)
+        self.program = contents
 
     def elaborate(self, platform):
         m = am.Module()
@@ -165,7 +167,7 @@ class Soc(am.lib.wiring.Component):
         #elf.dump_flat('debug.bin')
         #elf.dump_disassemble('debug.dump')
 
-        soc.set_rom(elf.flat)
+        soc.set_program(elf.flat)
 
         return soc
 
@@ -174,7 +176,7 @@ class Soc(am.lib.wiring.Component):
         soc = cls(clk_freq)
 
         elf = risky.compiler.ElfData.from_file(elfname)
-        soc.set_rom(elf.flat)
+        soc.set_program(elf.flat)
 
         return soc
 
@@ -187,7 +189,7 @@ class Soc(am.lib.wiring.Component):
             with open(binname, 'rb') as f:
                 data += f.read()
 
-        soc.set_rom(data)
+        soc.set_program(data)
         return soc
 
     @classmethod
