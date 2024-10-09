@@ -58,7 +58,7 @@ class ProgramTest(Simulated):
                     yield t
 
     def construct(self):
-        dut = risky.soc.Soc(self.clk_freq, cpu=self.cpu)
+        dut = risky.soc.Soc(self.clk_freq, cpu=self.cpu, bootloader=False)
         dut.cpu.assert_unknown_instructions = True
 
         with dut.compiler(runtime=False, optimize=False) as c:

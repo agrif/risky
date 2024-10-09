@@ -54,7 +54,7 @@ class Soc(am.lib.wiring.Component):
     copi: am.lib.wiring.Out(1)
     cipo: am.lib.wiring.In(1)
 
-    def __init__(self, clk_freq, cpu=None, memory_contents=b''):
+    def __init__(self, clk_freq, cpu=None, memory_contents=b'', bootloader=True):
         super().__init__()
 
         self.clk_freq = clk_freq
@@ -75,7 +75,11 @@ class Soc(am.lib.wiring.Component):
         self.memory = risky.memory.MemoryMap(alignment=28)
 
         # 4K bootloader rom
-        self.bootloader = self.memory.add_rom('bootloader', 4 * 1024)
+        if bootloader:
+            self.bootloader = self.memory.add_rom('bootloader', 4 * 1024)
+        else:
+            self.bootloader = None
+
         # 32K rom
         self.rom = self.memory.add_ram('rom', 32 * 1024, init=memory_contents)
         # 8K ram
@@ -88,15 +92,16 @@ class Soc(am.lib.wiring.Component):
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
             self.spi = p.add('spi', risky.peripherals.spi.Peripheral())
 
-        with self.compiler(bootloader=True) as c:
-            c.add(c.copy_runtime_file('bootloader.c'))
-            elf = c.link()
+        if bootloader:
+            with self.compiler(bootloader=True) as c:
+                c.add(c.copy_runtime_file('bootloader.c'))
+                elf = c.link()
 
-            #elf.dump('bootloader.elf')
-            #elf.dump_flat('bootloader.bin')
-            #elf.dump_disassemble('bootloader.dump')
+                #elf.dump('bootloader.elf')
+                #elf.dump_flat('bootloader.bin')
+                #elf.dump_disassemble('bootloader.dump')
 
-            self.bootloader.set_data(elf.flat)
+                self.bootloader.set_data(elf.flat)
 
     def set_program(self, contents):
         self.rom.set_data(contents)
