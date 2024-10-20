@@ -13,6 +13,7 @@ import risky.csr
 import risky.old_cpu
 import risky.ormux_cpu
 import risky.peripherals.gpio
+import risky.peripherals.sha1
 import risky.peripherals.spi
 import risky.peripherals.uart
 
@@ -91,6 +92,7 @@ class Soc(am.lib.wiring.Component):
             p.add('info', Info(clk_freq))
             self.output = p.add('leds', risky.peripherals.gpio.Output(1))
             self.spi = p.add('spi', risky.peripherals.spi.Peripheral())
+            #self.sha1 = p.add('sha1', risky.peripherals.sha1.Peripheral())
 
         if bootloader:
             with self.compiler(bootloader=True) as c:
@@ -144,6 +146,9 @@ class Soc(am.lib.wiring.Component):
             self.spi.copi,
             self.spi.cipo,
         ]
+
+        if getattr(self, sha1):
+            t['sha1'] = self.sha1.debug_traces
 
         return t
 
